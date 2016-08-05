@@ -1,0 +1,32 @@
+{
+  "name": "Portal Deploy API",
+  "id": "deploy-api-internal",
+  "auth": "none",
+  "config": {
+    "api": {
+      "upstream_url": "(filled dynamically)/deploy",
+      "request_path": "/deploy/v1",
+      "preserve_host": false,
+      "strip_request_path": true,
+      "name": "deploy-api-internal"
+    },
+    "plugins": [
+      {
+        "name": "correlation-id",
+        "config": {
+          "header_name": "Correlation-Id",
+          "generator": "uuid",
+          "echo_downstream": false
+        }
+      },
+      {
+        "config": {
+          "minute": 25,
+          "async": true,
+          "continue_on_error": true
+        },
+        "name": "rate-limiting"
+      }
+    ]
+  }
+}

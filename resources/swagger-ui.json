@@ -1,0 +1,24 @@
+{
+  "name": "Swagger UI Tunnel",
+  "id": "swagger-ui-portal",
+  "auth": "none",
+  "config": {
+    "api": {
+      "upstream_url": "(filled dynamically)/swagger-ui",
+      "request_path": "/swagger-ui",
+      "preserve_host": false,
+      "strip_request_path": true,
+      "name": "swagger-ui-portal"
+    },
+    "plugins": [
+      {
+        "name": "correlation-id",
+        "config": {
+          "header_name": "Correlation-Id",
+          "generator": "uuid",
+          "echo_downstream": false
+        }
+      }
+    ]
+  }
+}

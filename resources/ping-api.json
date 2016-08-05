@@ -1,0 +1,32 @@
+{
+  "name": "Kong Ping",
+  "id": "ping-portal",
+  "auth": "none",
+  "config": {
+    "api": {
+      "upstream_url": "(filled dynamically)/ping",
+      "request_path": "/ping-portal",
+      "preserve_host": false,
+      "strip_request_path": true,
+      "name": "ping-portal"
+    },
+    "plugins": [
+      {
+        "name": "correlation-id",
+        "config": {
+          "header_name": "Correlation-Id",
+          "generator": "uuid",
+          "echo_downstream": false
+        }
+      },
+      {
+        "config": {
+          "minute": 10,
+          "async": true,
+          "continue_on_error": true
+        },
+        "name": "rate-limiting"
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "Portal API",
+  "id": "portal-api-internal",
+  "auth": "oauth2",
+  "config": {
+    "api": {
+      "upstream_url": "(filled dynamically)/",
+      "request_path": "/portal-api/v1",
+      "preserve_host": false,
+      "strip_request_path": true,
+      "name": "portal-api-internal"
+    },
+    "plugins": [
+      {
+        "name": "correlation-id",
+        "config": {
+          "header_name": "Correlation-Id",
+          "generator": "uuid",
+          "echo_downstream": false
+        }
+      },
+      {
+        "config": {
+          "minute": 100,
+          "async": true,
+          "continue_on_error": true
+        },
+        "name": "rate-limiting"
+      }
+    ]
+  }
+}
