@@ -103,7 +103,7 @@ async.parallel({
 
         // Graceful shutdown
         process.on('SIGINT', function() {
-            debug("Attempting unregistering from portal API.");
+            debug("Gracefully shutting down.");
             kong.deinit(app, function(err) {
                 process.exit();
             });

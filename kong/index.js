@@ -50,7 +50,10 @@ kongMain.init = function (app, options, done) {
 };
 
 kongMain.deinit = function (app, done) {
-    utils.apiDelete(app, 'webhooks/listeners/kong-adapter', done);
+    // Don't do this; this can result in glitches in the database; let
+    // the wicked API store our events until we return.
+    //utils.apiDelete(app, 'webhooks/listeners/kong-adapter', done);
+    setTimeout(done, 0);
 };
 
 // ====== INTERNALS =======

@@ -4,8 +4,10 @@ var logger = require('morgan');
 var bodyParser = require('body-parser');
 var async = require('async');
 var request = require('request');
+var debug = require('debug')('kong-adapter:app');
 var correlationIdHandler = require('portal-env').CorrelationIdHandler();
 var kong = require('./kong');
+var oauth2 = require('./kong/oauth2');
 var utils = require('./kong/utils');
 
 var app = express();
@@ -74,6 +76,44 @@ app.get('/ping', function (req, res, next) {
         res.status(500);
     }
     res.json(health);
+});
+
+app.post('/kill', function (req, res, next) {
+    debug('/kill');
+    if (!process.env.ALLOW_KILL) {
+        debug('/kill rejected, ALLOW_KILL is not set.');
+        return res.status(403).json({});
+    }
+    debug('/kill accepted. Shutting down.');
+    res.status(204).json({});
+    setTimeout(function() {
+        process.exit(0);
+    }, 1000);
+});
+
+/*
+ End point for authorizing end users for use with the oauth2
+ implicit grant. This requires a payload which looks like this:
+
+ {
+     "email":"hello@company.com",
+     "custom_id":"1234567",
+     "api_id":"some_api",
+     "client_id":"ab7364bd9ef0992838dfab9384",
+     "headers": [
+         {"X-SomeHeader": "some-value"}
+     ]
+ }
+
+ If there is registered application for the given client_id,
+ and there is a subscription for the given API for that application,
+ the user is created, the OAuth2 app is registered with it, and
+ an access token is returned in form of a redirect_uri with a
+ fragment.
+ */
+app.post('/oauth2/register', function (req, res, next) {
+    debug('/oauth2/register');
+    oauth2.registerUser(req.app, res, req.body);
 });
 
 function processWebhooks(app, webhooks, callback) {

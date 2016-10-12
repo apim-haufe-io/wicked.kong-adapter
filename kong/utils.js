@@ -193,4 +193,43 @@ utils.kongPatch = function(app, url, body, callback) {
     kongAction(app, 'PATCH', url, body, 200, callback);
 };
 
+utils.getPlan = function (app, planId, callback) {
+    debug('getPlan() - ' + planId);
+    utils.getPlans(app, function (err, plans) {
+        if (err)
+            return callback(err);
+        internalGetPlan(plans, planId, callback);
+    });
+};
+
+utils._plans = null;
+utils.getPlans = function (app, callback) {
+    debug('getPlans()');
+    if (!utils._plans) {
+        utils.apiGet(app, 'plans', function (err, results) {
+            if (err)
+                return callback(err);
+            utils._plans = results;
+            return callback(null, utils._plans);
+        });
+    } else {
+        return callback(null, utils._plans);
+    }
+};
+
+function internalGetPlan(plans, planId, callback) {
+    const plan = plans.plans.find(p => p.id === planId);
+    if (!plan)
+        return callback(new Error('Unknown plan ID: ' + planId));
+    return callback(null, plan);
+}
+
+utils.findWithName = function (someArray, name) {
+    for (var i = 0; i < someArray.length; ++i) {
+        if (someArray[i].name === name)
+            return someArray[i];
+    }
+    return null;
+};
+
 module.exports = utils;

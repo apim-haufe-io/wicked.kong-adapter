@@ -146,7 +146,7 @@ This is what we want from the portal:
                 "name": "rate-limiting",
                 "config": {
                     "hour": 100,
-                    "async": true
+                    "fault_tolerant": true
                 }
             }
         ]
@@ -157,12 +157,8 @@ This is what we want from the portal:
 portal.getPortalConsumers = function (app, done) {
     debug('getPortalConsumers()');
     async.parallel({
-        apiPlans: function (callback) {
-            utils.apiGet(app, 'plans', callback);
-        },
-        applicationList: function (callback) {
-            utils.apiGet(app, 'applications', callback);
-        },
+        apiPlans: callback => utils.getPlans(app, callback),
+        applicationList: callback => utils.apiGet(app, 'applications', callback),
         userList: function (callback) {
             if (app.kongGlobals.api &&
                 app.kongGlobals.api.portal &&
@@ -302,6 +298,11 @@ function enrichApplications(app, applicationList, apiPlans, done) {
                 // Only propagate approved subscriptions
                 if (!appSubs.approved)
                     continue;
+                // Don't propagate oauth2-implicit subscriptions
+                if (appSubs.auth === 'oauth2-implicit') {
+                    debug('Not syncing implicit OAuth2 API ' + appSubs.api + ' for app ' + appSubs.application);
+                    continue;
+                }
                 debug(utils.getText(appSubs));
                 var consumerInfo = {
                     consumer: {
@@ -370,6 +371,8 @@ function injectAuthPlugins(app, apiList) {
             injectKeyAuth(app, thisApi);
         else if ("oauth2" == thisApi.auth)
             injectClientCredentialsAuth(app, thisApi);
+        else if ("oauth2-implicit" == thisApi.auth)
+            injectImplicitAuth(app, thisApi);
         else
             throw new Error("Unknown 'auth' setting: " + thisApi.auth);
     }
@@ -416,12 +419,15 @@ function injectClientCredentialsAuth(app, api) {
     var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
     if (aclPlugin)
         throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
+    let token_expiration = 3600;
+    if (api.settings && api.settings.token_expiration)
+        token_expiration = api.settings.token_expiration;
     plugins.push({
         name: 'oauth2',
         enabled: true,
         config: {
             scopes: ['api'],
-            token_expiration: 3600,
+            token_expiration: token_expiration,
             enable_authorization_code: false,
             enable_client_credentials: true,
             enable_implicit_grant: false,
@@ -438,6 +444,48 @@ function injectClientCredentialsAuth(app, api) {
         }
     });
     return api;
+}
+
+function injectImplicitAuth(app, api) {
+    debug('injectImplicitAuth()');
+    if (!api.config.plugins)
+        api.config.plugins = [];
+    var plugins = api.config.plugins;
+    var keyAuthPlugin = plugins.find(function (plugin) { return plugin.name == "key-auth"; });
+    if (keyAuthPlugin)
+        throw new Error("If you use 'oauth2-implicit' in the apis.json, you must not provide a 'oauth2' plugin yourself. Remove it and retry.");
+    var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
+    if (aclPlugin)
+        throw new Error("If you use 'oauth2-implicit' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
+    
+    let scopes = ['api'];
+    let mandatory_scope = false;
+    let token_expiration = 3600;
+    if (api.settings) {
+        // Check overridden defaults
+        if (api.settings.scopes)
+            scopes = api.settings.scopes;
+        if (api.settings.mandatory_scope)
+            mandatory_scope = api.settings.mandatory_scope;
+        if (api.settings.token_expiration)
+            token_expiration = api.settings.token_expiration;
+    }
+
+    plugins.push({
+        name: 'oauth2',
+        enabled: true,
+        config: {
+            scopes: scopes,
+            mandatory_scope: mandatory_scope,
+            token_expiration: token_expiration,
+            enable_authorization_code: false,
+            enable_client_credentials: false,
+            enable_implicit_grant: true,
+            enable_password_grant: false,
+            hide_credentials: true,
+            accept_http_if_already_terminated: true
+        }
+    });
 }
 
 module.exports = portal;

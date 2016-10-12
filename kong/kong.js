@@ -214,7 +214,7 @@ kong.deleteKongPlugins = function (app, deleteList, done) {
                 "name": "rate-limiting",
                 "config": {
                     "hour": 100,
-                    "async": true
+                    "fault_tolerant": true
                 }
             }
         ]
@@ -261,7 +261,7 @@ function enrichConsumerInfo(app, kongConsumer, done) {
             enrichConsumerPlugins(app, consumerInfo, callback);
         },
         apiPlugins: function (callback) {
-            enrichConsumerApiPlugins(app, consumerInfo, callback);
+            kong.enrichConsumerApiPlugins(app, consumerInfo, null, callback);
         }
     }, function (err) {
         if (err)
@@ -277,7 +277,7 @@ function enrichConsumerPlugins(app, consumerInfo, done) {
             if (err)
                 return callback(err);
             if (pluginData.total > 0)
-                consumerInfo.plugins[pluginName] = fiddleIfOAuth2(pluginName, pluginData.data);
+                consumerInfo.plugins[pluginName] = pluginData.data;
             return callback(null);
         });
     }, function (err) {
@@ -285,33 +285,6 @@ function enrichConsumerPlugins(app, consumerInfo, done) {
             return done(err);
         return done(null, consumerInfo);
     });
-}
-
-// Kong - for whatever reason - encodes the redirect_uri list
-// as JSON inside a JSON property. We have to unpack it to make
-// match the portal JSON. This is how it looks when retrieving from
-// the API:
-// {
-//    name: 'oauth2',
-//    client_id: '...'
-//    client_secret: '...'
-//    ...
-//    redirect_uri: "[\"http:\\/\\/dummy.org\"]"
-// }
-// This is stupid. But this fixes it.
-function fiddleIfOAuth2(pluginName, kongConsumerPlugin) {
-    if ("oauth2" != pluginName)
-        return kongConsumerPlugin;
-    debug('fiddleIfOAuth2()');
-    for (var i=0; i<kongConsumerPlugin.length; ++i) {
-        var redirect_uri = kongConsumerPlugin[i].redirect_uri;
-        if (!redirect_uri ||
-            !redirect_uri.startsWith('['))
-            continue;
-            
-        kongConsumerPlugin[i].redirect_uri = JSON.parse(redirect_uri);
-    }
-    return kongConsumerPlugin;
 }
 
 function extractApiName(consumerName) {
@@ -326,12 +299,15 @@ function extractApiName(consumerName) {
     return null;
 }
 
-function enrichConsumerApiPlugins(app, consumerInfo, done) {
+kong.enrichConsumerApiPlugins = function (app, consumerInfo, /* optional */apiId, done) {
     debug('enrichConsumerApiPlugins');
     var consumerId = consumerInfo.consumer.id;
-    var apiName = extractApiName(consumerInfo.consumer.username);
+    // Pass null for apiId if you want to extract it from the consumer's username
+    let apiName = apiId;
+    if (!apiId)
+        apiName = extractApiName(consumerInfo.consumer.username);
     if (!apiName) {
-        debug('enrichConsumerApiPlugins: Could not extract API name from name "' + consumerInfo.consumer.username + '".');
+        debug('enrichConsumerApiPlugins: Could not extract API name from name "' + consumerInfo.consumer.username + '", and API was not passed into function.');
         // Do nothing then, no plugins
         return;
     }
@@ -347,7 +323,7 @@ function enrichConsumerApiPlugins(app, consumerInfo, done) {
         consumerInfo.apiPlugins = apiPlugins.data;
         done(null, consumerInfo);
     });
-}
+};
 
 function addKongConsumerApiPlugin(app, portalConsumer, consumerId, portalApiPlugin, done) {
     debug('addKongConsumerApiPlugin()');

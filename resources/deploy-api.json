@@ -22,8 +22,7 @@
       {
         "config": {
           "minute": 25,
-          "async": true,
-          "continue_on_error": true
+          "fault_tolerant": true
         },
         "name": "rate-limiting"
       }
