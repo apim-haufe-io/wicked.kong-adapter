@@ -11,6 +11,8 @@ var sync = require('./sync');
 
 var kongMain = function () { };
 
+const MAX_ASYNC_CALLS = 10;
+
 // ====== PUBLIC INTERFACE ======
 
 kongMain.init = function (app, options, done) {
@@ -71,8 +73,23 @@ function processPendingWebhooks(app, done) {
         if (err)
             return done(err);
         const onlyDelete = true;
-        async.eachSeries(pendingEvents, (webhookData, callback) => dispatchWebhookAction(app, webhookData, onlyDelete, callback), done);
+        if (!containsImportEvent(pendingEvents)) {
+            async.eachSeries(pendingEvents, (webhookData, callback) => dispatchWebhookAction(app, webhookData, onlyDelete, callback), done);
+        } else {
+            // we have seen an import since we last lived; wipe consumers, re-sync them, and acknowledge everything.
+            async.series([
+                callback => doPostImport(app, callback),
+                callback => acknowledgeEvents(app, pendingEvents, callback)
+            ], done);
+        }
     });
+}
+
+function containsImportEvent(eventList) {
+    if (!eventList)
+        return false;
+    const importEvent = eventList.find(e => e.entity === 'import');
+    return !!importEvent;
 }
 
 function dispatchWebhookAction(app, webhookData, onlyDelete, callback) {
@@ -144,13 +161,21 @@ function deleteUserConsumer(app, userId, callback) {
     sync.deleteUserConsumer(app, userId, callback);
 }
 
+function acknowledgeEvents(app, eventList, done) {
+    debug('acknowledgeEvents()');
+    async.mapLimit(eventList, MAX_ASYNC_CALLS, (event, callback) => acknowledgeEvent(app, event.id, callback), done);
+}
+
 function acknowledgeEvent(app, eventId, callback) {
     utils.apiDelete(app, 'webhooks/events/kong-adapter/' + eventId, callback);
 }
 
-function doPostImport(app, callback) {
-    // TODO.
-    setTimeout(callback, 0);
+function doPostImport(app, done) {
+    debug('doPostImport()');
+    async.series([
+        callback => sync.wipeAllConsumers(app, callback),
+        callback => sync.syncAllConsumers(app, callback) 
+    ], done);
 }
 
 kongMain.deinit = function (app, done) {

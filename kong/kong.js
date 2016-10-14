@@ -10,6 +10,7 @@ var kong = function () { };
 // The maximum number of async I/O calls we fire off against
 // the Kong instance for one single call.
 const MAX_PARALLEL_CALLS = 10;
+const KONG_BATCH_SIZE = 100; // Used when wiping the consumers
 
 kong.getKongApis = function (app, done) {
     debug('kong.getKongApis()');
@@ -671,6 +672,46 @@ kong.deleteConsumerWithCustomId = function (app, customId, callback) {
 function deleteConsumerWithId(app, consumerId, callback) {
     debug('deleteConsumerWithId(): ' + consumerId);
     utils.kongDelete(app, 'consumers/' + consumerId, callback);
+}
+
+// Use with care ;-) This will not only wipe the consumers which are created
+// from the portal API, but also any oauth2-implicit type consumers (plain: all).
+kong.wipeAllConsumers = function (app, callback) {
+    debug('wipeAllConsumers()');
+    wipeConsumerBatch(app, 'consumers?size=' + KONG_BATCH_SIZE, callback);
+};
+
+/*
+ consumerData: {
+     total: <...>
+     next: 'http://....'
+     data: [
+         {
+            ...    
+         },
+         {
+             ...
+         }
+     ]
+ }
+ */
+function wipeConsumerBatch(app, consumerUrl, callback) {
+    debug('wipeConsumerBatch() ' + consumerUrl);
+    utils.kongGet(app, consumerUrl, function (err, consumerData) {
+        if (err)
+            return callback(err);
+        async.mapSeries(consumerData.data, function (consumer, callback) {
+            utils.kongDelete(app, 'consumers/' + consumer.id, callback);
+        }, function (err, results) {
+            if (err)
+                return callback(err);
+            if (!consumerData.next) // no next link --> we're done
+                return callback(null);
+
+            // Continue with next batch; get fresh, as we deleted the other ones.
+            wipeConsumerBatch(app, consumerUrl, callback);
+        });
+    });
 }
 
 module.exports = kong;

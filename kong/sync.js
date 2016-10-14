@@ -235,6 +235,11 @@ sync.syncConsumerApiPlugins = function (app, portalConsumer, kongConsumer, done)
     });
 };
 
+sync.wipeAllConsumers = function (app, done) {
+    debug('wipeAllConsumers()');
+    kong.wipeAllConsumers(app, done);
+};
+
 // ========= INTERNALS ===========
 
 function assembleApiTodoLists(portalApis, kongApis) {
