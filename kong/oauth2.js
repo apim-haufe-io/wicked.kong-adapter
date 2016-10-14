@@ -225,7 +225,7 @@ function createConsumer(app, oauthInfo, callback) {
     debug('We need a new consumer, creating.');
     // We need to create a new Kong consumer
     utils.kongPost(app, 'consumers', {
-        username: oauthInfo.inputData.email + '$' + oauthInfo.inputData.api_id,
+        username: utils.makeUserName(oauthInfo.inputData.email, oauthInfo.inputData.api_id),
         custom_id: oauthInfo.inputData.custom_id
     }, function (err, result) {
         if (err) {

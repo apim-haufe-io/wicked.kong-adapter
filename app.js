@@ -6,7 +6,7 @@ var async = require('async');
 var request = require('request');
 var debug = require('debug')('kong-adapter:app');
 var correlationIdHandler = require('portal-env').CorrelationIdHandler();
-var kong = require('./kong');
+var kongMain = require('./kong/main');
 var oauth2 = require('./kong/oauth2');
 var utils = require('./kong/utils');
 
@@ -26,6 +26,7 @@ if (app.get('env') == 'development')
     app.use(logger('dev'));
 else
     app.use(logger('{"date":":date[clf]","method":":method","url":":url","remote-addr":":remote-addr","version":":http-version","status":":status","content-length":":res[content-length]","referrer":":referrer","response-time":":response-time","correlation-id":":correlation-id"}'));
+// Make sure we get the body directly as JSON. Thanks.
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
@@ -39,11 +40,12 @@ app.post('/', function (req, res, next) {
     }
 
     req.app.processingWebhooks = true;
-    processWebhooks(app, req.body, function (err) {
+    kongMain.processWebhooks(app, req.body, function (err) {
         req.app.processingWebhooks = false;
         if (err) {
             app.lastErr = err;
             console.error(err);
+            console.error(err.stack);
             return res.status(500).json(err);
         }
         app.lastErr = null;
@@ -100,6 +102,7 @@ app.post('/kill', function (req, res, next) {
      "custom_id":"1234567",
      "api_id":"some_api",
      "client_id":"ab7364bd9ef0992838dfab9384",
+     "scope": ["scope1", "scope2"] // This is optional, depending on the API def.
      "headers": [
          {"X-SomeHeader": "some-value"}
      ]
@@ -115,55 +118,6 @@ app.post('/oauth2/register', function (req, res, next) {
     debug('/oauth2/register');
     oauth2.registerUser(req.app, res, req.body);
 });
-
-function processWebhooks(app, webhooks, callback) {
-    var baseUrl = app.get('api_url');
-
-    // If there are no relevant changes, just ack the events
-    if (!thereAreInterestingEvents(webhooks))
-        return acknowledgeWebhooks(webhooks, callback);
-
-    // Re-sync the consumers
-    var initOptions = {
-        initGlobals: false,
-        syncApis: false,
-        syncConsumers: true
-    };
-    kong.init(app, initOptions, function (err) {
-        if (err)
-            return callback(err);
-        acknowledgeWebhooks(webhooks, callback);
-    });
-}
-
-function thereAreInterestingEvents(webhooks) {
-    var hasRelevantChanges = false;
-    for (var i=0; i<webhooks.length; ++i) {
-        var wh = webhooks[i];
-        if (wh.entity == 'subscription')
-            hasRelevantChanges = true;
-        if (wh.entity == 'application' && 
-            wh.action == 'delete')
-            hasRelevantChanges = true;
-        if (wh.entity == 'import')
-            hasRelevantChanges = true;
-        if (wh.entity == 'user')
-            hasRelevantChanges = true;
-    }
-    return hasRelevantChanges;
-}
-
-function acknowledgeWebhooks(webhooks, callback) {
-    // Let's acknowledge them
-    async.map(webhooks, function (event, callback) {
-        utils.apiDelete(app, 'webhooks/events/kong-adapter/' + event.id, callback);
-    }, function (err2, results) {
-        if (err2)
-            return callback(err2);
-        // We don't need the results. The delete has no results.
-        return callback(null);
-    });
-}
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {

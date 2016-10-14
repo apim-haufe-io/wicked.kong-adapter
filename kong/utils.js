@@ -232,4 +232,8 @@ utils.findWithName = function (someArray, name) {
     return null;
 };
 
+utils.makeUserName = function (appId, apiId) {
+    return appId + '$' + apiId;
+};
+
 module.exports = utils;

@@ -8,7 +8,7 @@ Applications which are intended for use with the OAuth2 Implicit Flow will not b
 
 ### Idenitification of consumers
 
-Usernames of consumers which were created via the `/oauth2/register` endpoint of the Kong adapter will be prepended with the `oauth2_implicit:` prefix, distinguishing them from the application type consumers (see above).
+Consumers which are created via the OAuth2 Implicit Grant Flow are not directly distinguishable from the ones created from the applications/subscriptions registered in the API Portal; they have a username like `email@company.com$api-name`. 
 
 # Problematic Use Cases
 
@@ -20,14 +20,18 @@ For simplicity, the Kong Adapter only had a single operation, synchronizing all 
 
 As a change now, we will do the following:
 
-* All consumers are only synchronized "left to right", that is from wicked to Kong; any existing consumers in Kong (which do not match a consumer in wicked) are ignored
-* Any change on an application only synchronizes that single application, except at first startup, where all consumers are synchronized once (but also only from wicked to Kong)
+* All consumers are only synchronized "left to right", that is from wicked to Kong; any existing consumers in Kong (which do not match a consumer in wicked) are ignored (**done**)
+* Any change on an application only synchronizes that single application, except at first startup, where all consumers are synchronized once (but also only from wicked to Kong) (**done**)
 * New: The Kong Adapter will react to "delete application" events, and subsequently delete those applications from the Kong database
+    * Due to the fact that not applications, but the application's subscriptions are mapped to consumers in Kong, the delete app webhook needs to also transfer the current subscriptions of the application to listening subscribers (otherwise these would be left hanging). **done**
+    * Caveat: A new synchronization would not help in deleting these subscriptions! This should be looked into; this means it's more or less mandatory to re-deploy Kong and its PGSQL instance from time to time to be sure it's in a reconciliated state. Plus: See below - at startup check for pending `delete` webhook events. **done**
+    * Possible additional mitigation: Run a cleanup step from time to time checking all consumers, and removing consumers which cannot be mapped to any current applications from the API Portal (difficulty: How are the consumers from oauth2-implicit APIs distinguished from application consumers from the API Portal? --> OAuth2 users have email addresses in their `username`, the web apps have not)
 
-#### Sub-problems (not solved):
+#### Sub-problems (partly not solved):
 
 * Deleting an application which uses OAuth2 implicit grant from wicked would result in consumers left in the Kong database which could never be cleaned up until Kong is deployed anew (with a fresh database); these consumers could potentially carry still-valid access tokens for an API, even if the application does no longer exist (mitigation: use short expiry times, e.g. 24h or shorter).
 * Deleting API Key/CC applications while the Kong adapter is experiencing a down-time could potentially result in applications left in the Kong consumer database, with potentially still valid API Keys/credentials (mitigation: Don't automatically unregister the Kong Adapter if it goes down, but store the events. **done**)
+    * Additional mitigation: At Kong Adapter startup, **first** check the event queue for pending `delete` events; these have to be dealt with first. After that, the queue may be deleted and a full initialization can be done. Otherwise there may be left-overs which are not deleted at the initialization (as we're only doing left to right now). (**not yet done**)
 
 ## Use Case: Changing an Application's `redirect_uri`
 

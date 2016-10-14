@@ -18,7 +18,7 @@ var environment = app.get('env');
 if (!environment)
     throw new Error('Environment variable NODE_ENV must be set.');
 
-var kong = require('../kong/index');
+var kong = require('../kong/main');
 
 /**
  * Get port from environment and store in Express.

@@ -6,15 +6,78 @@ var utils = require('./utils');
 
 var portal = function () { };
 
+const MAX_PARALLEL_CALLS = 10;
+
 // ======== INTERFACE FUNCTIONS =======
 
 portal.getPortalApis = function (app, done) {
     debug('getPortalApis()');
-    utils.apiGet(app, 'apis', function (err, apiList) {
+    async.parallel({
+        getApis: callback => getActualApis(app, callback),
+        getAuthServers: callback => getAuthServerApis(app, callback)
+    }, function (err, results) {
         if (err)
             return done(err);
 
-        async.eachSeries(apiList.apis, function (apiDef, callback) {
+        const apiList = results.getApis;
+        const authServerList = results.getAuthServers;
+
+        var portalHost = app.kongGlobals.network.portalUrl;
+        if (!portalHost) {
+            debug('portalUrl is not set in globals.json, defaulting to http://portal:3000');
+            portalHost = 'http://portal:3000'; // Default
+        }
+        // Add the Swagger UI "API" for tunneling
+        var swaggerApi = require('../resources/swagger-ui.json');
+        swaggerApi.config.api.upstream_url = portalHost + '/swagger-ui';
+        apiList.apis.push(swaggerApi);
+
+        // And a Ping end point for monitoring            
+        var pingApi = require('../resources/ping-api.json');
+        pingApi.config.api.upstream_url = portalHost + '/ping';
+        apiList.apis.push(pingApi);
+
+        // Add the /deploy API
+        var deployApi = require('../resources/deploy-api.json');
+        var apiUrl = app.kongGlobals.network.apiUrl;
+        if (!apiUrl) {
+            debug('apiUrl is not set in globals.json, defaulting to http://portal-api:3001');
+            apiUrl = 'http://portal-api:3001';
+        }
+        if (apiUrl.endsWith('/'))
+            apiUrl = apiUrl.substring(0, apiUrl.length - 1);
+        deployApi.config.api.upstream_url = apiUrl + '/deploy';
+        apiList.apis.push(deployApi);
+
+        // And the actual Portal API (OAuth 2.0)
+        var portalApi = require('../resources/portal-api.json');
+        portalApi.config.api.upstream_url = apiUrl;
+        apiList.apis.push(portalApi);
+
+        // And the auth Servers please
+        for (let i=0; i<authServerList.length; ++i)
+            apiList.apis.push(authServerList[i]);
+
+        debug('getPortalApis():');
+        debug(apiList);
+
+        try {
+            injectAuthPlugins(app, apiList);
+        } catch (injectErr) {
+            return done(injectErr);
+        }
+
+        return done(null, apiList);
+    });
+};
+
+function getActualApis(app, callback) {
+    debug('getActualApis()');
+    utils.apiGet(app, 'apis', function (err, apiList) {
+        if (err)
+            return callback(err);
+        // Enrich apiList with the configuration.
+        async.eachLimit(apiList.apis, MAX_PARALLEL_CALLS, function (apiDef, callback) {
             utils.apiGet(app, 'apis/' + apiDef.id + '/config', function (err, apiConfig) {
                 if (err)
                     return callback(err);
@@ -23,53 +86,26 @@ portal.getPortalApis = function (app, done) {
             });
         }, function (err) {
             if (err)
-                return done(err);
-
-            var portalHost = app.kongGlobals.network.portalUrl;
-            if (!portalHost) {
-                debug('portalUrl is not set in globals.json, defaulting to http://portal:3000');
-                portalHost = 'http://portal:3000'; // Default
-            }
-            // Add the Swagger UI "API" for tunneling
-            var swaggerApi = require('../resources/swagger-ui.json');
-            swaggerApi.config.api.upstream_url = portalHost + '/swagger-ui';
-            apiList.apis.push(swaggerApi);
-
-            // And a Ping end point for monitoring            
-            var pingApi = require('../resources/ping-api.json');
-            pingApi.config.api.upstream_url = portalHost + '/ping';
-            apiList.apis.push(pingApi);
-
-            // Add the /deploy API
-            var deployApi = require('../resources/deploy-api.json');
-            var apiUrl = app.kongGlobals.network.apiUrl;
-            if (!apiUrl) {
-                debug('apiUrl is not set in globals.json, defaulting to http://portal-api:3001');
-                apiUrl = 'http://portal-api:3001';
-            }
-            if (apiUrl.endsWith('/'))
-                apiUrl = apiUrl.substring(0, apiUrl.length - 1);
-            deployApi.config.api.upstream_url = apiUrl + '/deploy';
-            apiList.apis.push(deployApi);
-
-            // And the actual Portal API (OAuth 2.0)
-            var portalApi = require('../resources/portal-api.json');
-            portalApi.config.api.upstream_url = apiUrl;
-            apiList.apis.push(portalApi);
-
-            debug('getPortalApis():');
-            debug(apiList);
-
-            try {
-                apiList = injectAuthPlugins(app, apiList);
-            } catch (injectErr) {
-                return done(injectErr);
-            }
-
-            return done(null, apiList);
+                return callback(err);
+            return callback(null, apiList);
         });
     });
-};
+}
+
+function getAuthServerApis(app, callback) {
+    debug('getAuthServerApis()');
+    utils.apiGet(app, 'auth-servers', function (err, authServerNames) {
+        if (err)
+            return callback(err);
+        async.mapLimit(authServerNames, MAX_PARALLEL_CALLS, function (authServerName, callback) {
+            utils.apiGet(app, 'auth-servers/' + authServerName, callback);
+        }, function (err, authServers) {
+            if (err)
+                return callback(err);
+            callback(null, authServers);
+        });
+    });
+}
 
 function checkApiConfig(app, apiConfig) {
     if (apiConfig.plugins) {
@@ -154,53 +190,74 @@ This is what we want from the portal:
 ]
 */
 
-portal.getPortalConsumers = function (app, done) {
-    debug('getPortalConsumers()');
-    async.parallel({
-        apiPlans: callback => utils.getPlans(app, callback),
-        applicationList: callback => utils.apiGet(app, 'applications', callback),
-        userList: function (callback) {
-            if (app.kongGlobals.api &&
-                app.kongGlobals.api.portal &&
-                app.kongGlobals.api.portal.enableApi) {
-                utils.apiGet(app, 'users', callback);
-            } else {
-                process.nextTick(function () { callback(null, []); });
-            }
-        }
-    }, function (err, results) {
+/* One app can have multiple consumers (one per subscription) */
+portal.getAppConsumers = function (app, appId, callback) {
+    debug('getPortalConsumersForApp() ' + appId);
+    const applicationList = [{ id: appId }];
+    async.waterfall([
+        callback => utils.getPlans(app, callback),
+        (apiPlans, callback) => enrichApplications(app, applicationList, apiPlans, callback)
+    ], function (err, appConsumers) {
         if (err)
-            return done(err);
-
-        var apiPlans = results.apiPlans;
-        var applicationList = results.applicationList;
-        var userList = results.userList;
-
-        debug('getPortalConsumers: apiPlans = ' + utils.getText(apiPlans));
-        debug('getPortalConsumers: applicationList = ' + utils.getText(applicationList));
-        debug('userList = ' + utils.getText(userList));
-
-        async.parallel({
-            appsConsumers: function (callback) {
-                enrichApplications(app, applicationList, apiPlans, callback);
-            },
-            userConsumers: function (callback) {
-                enrichUsers(app, userList, callback);
-            }
-        }, function (err, results) {
-            if (err)
-                done(err);
-
-            var appsConsumers = results.appsConsumers;
-            var userConsumers = results.userConsumers;
-
-            var allConsumers = appsConsumers.concat(userConsumers);
-            debug('allConsumers = ' + utils.getText(allConsumers));
-
-            done(null, allConsumers);
-        });
+            return callback(err);
+        callback(null, appConsumers);
     });
 };
+
+/* One user can have max one consumer (possibly none) */
+portal.getUserConsumer = function (app, userId, callback) {
+    debug('getPortalConsumerForUser() ' + userId);
+    if (!isInternalApiEnabled(app))
+        return setTimeout(callback, 0, null, []); // async version of callback(null, [])
+    const userList = [{ id: userId }];
+    enrichUsers(app, userList, callback);
+};
+
+portal.getAllPortalConsumers = function (app, callback) {
+    debug('getAllPortalConsumers()');
+    async.parallel({
+        appConsumers: callback => getAllAppConsumers(app, callback),
+        userConsumers: callback => getAllUserConsumers(app, callback)
+    }, function (err, results) {
+        if (err)
+            return callback(err);
+        
+        const appConsumers = results.appConsumers;
+        const userConsumers = results.userConsumers;
+
+        const allConsumers = appConsumers.concat(userConsumers);
+        callback(null, allConsumers);
+    });
+};
+
+function getAllAppConsumers(app, callback) {
+    debug('getAllAppConsumers()');
+    async.parallel({
+        apiPlans: callback => utils.getPlans(app, callback),
+        applicationList: callback => utils.apiGet(app, 'applications', callback)
+    }, function (err, results) {
+        if (err)
+            return callback(err);
+
+        const applicationList = results.applicationList;
+        const apiPlans = results.apiPlans;
+
+        enrichApplications(app, applicationList, apiPlans, callback);
+    });
+}
+
+function getAllUserConsumers(app, callback) {
+    debug('getAllUserConsumers()');
+    if (isInternalApiEnabled(app)) {
+        utils.apiGet(app, 'users', function (err, userList) {
+            if (err)
+                return callback(err);
+            enrichUsers(app, userList, callback);
+        });
+    } else {
+        process.nextTick(function () { callback(null, []); });
+    }
+}
 
 function userHasGroup(userInfo, group) {
     if (userInfo &&
@@ -220,8 +277,19 @@ function enrichUsers(app, userList, done) {
     debug('enrichUsers(), userList = ' + utils.getText(userList));
     // We need to use "apiGetAsUser" here in order to retrieve the client
     // credentials. You won't see those for other users in the UI. 
-    async.map(userList, function (userInfo, callback) {
-        utils.apiGetAsUser(app, 'users/' + userInfo.id, userInfo.id, callback);
+    async.mapLimit(userList, MAX_PARALLEL_CALLS, function (userInfo, callback) {
+        utils.apiGetAsUser(app, 'users/' + userInfo.id, userInfo.id, function (err, userData) {
+            if (err && err.status === 404) {
+                // Half expected; may be if the user was deleted before the
+                // webhook event was processed.
+                console.error('*** Could not find user with id ' + userInfo.id);
+                console.error('*** Skipping (not quitting).');
+                return callback(null, null);
+            } else if (err) {
+                return callback(err);
+            }
+            return callback(null, userData);
+        });
     }, function (err, results) {
         if (err) {
             console.error(err);
@@ -232,8 +300,10 @@ function enrichUsers(app, userList, done) {
         for (var i = 0; i < results.length; ++i) {
             // for (var i=0; i<5; ++i) {
             var thisUser = results[i];
+            if (!thisUser) // May be from a 404
+                continue;
 
-            console.log(thisUser);
+            debug(thisUser);
 
             // If this user doesn't have a clientId and clientSecret,
             // we can quit immediately.
@@ -284,8 +354,18 @@ function enrichUsers(app, userList, done) {
 
 function enrichApplications(app, applicationList, apiPlans, done) {
     debug('enrichApplications(), applicationList = ' + utils.getText(applicationList));
-    async.map(applicationList, function (appInfo, callback) {
-        utils.apiGet(app, 'applications/' + appInfo.id + '/subscriptions', callback);
+    async.mapLimit(applicationList, MAX_PARALLEL_CALLS, function (appInfo, callback) {
+        utils.apiGet(app, 'applications/' + appInfo.id + '/subscriptions', function (err, subsList) {
+            if (err && err.status == 404) {
+                // Race condition; web hook processing was not finished until the application
+                // was deleted again (can normally just happen when doing automatic testing).
+                console.error('*** Application with ID ' + appInfo.id + ' was not found.');
+                return callback(null, []); // Treat as empty
+            } else if (err) {
+                return callback(err);
+            }
+            return callback(null, subsList);
+        });
     }, function (err, results) {
         if (err)
             return done(err);
@@ -306,7 +386,7 @@ function enrichApplications(app, applicationList, apiPlans, done) {
                 debug(utils.getText(appSubs));
                 var consumerInfo = {
                     consumer: {
-                        username: appSubs.application + '$' + appSubs.api,
+                        username: utils.makeUserName(appSubs.application, appSubs.api),
                         custom_id: appSubs.id
                     },
                     plugins: {
@@ -376,7 +456,6 @@ function injectAuthPlugins(app, apiList) {
         else
             throw new Error("Unknown 'auth' setting: " + thisApi.auth);
     }
-    return apiList;
 }
 
 function injectKeyAuth(app, api) {
@@ -486,6 +565,12 @@ function injectImplicitAuth(app, api) {
             accept_http_if_already_terminated: true
         }
     });
+}
+
+function isInternalApiEnabled(app) {
+    return (app.kongGlobals.api &&
+            app.kongGlobals.api.portal &&
+            app.kongGlobals.api.portal.enableApi);
 }
 
 module.exports = portal;

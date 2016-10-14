@@ -9,6 +9,8 @@ var utils = require('./utils');
 
 var sync = function () { };
 
+const MAX_ASYNC_CALLS = 10;
+
 // ========= INTERFACE FUNCTIONS ========
 
 sync.syncApis = function (app, done) {
@@ -23,7 +25,11 @@ sync.syncApis = function (app, done) {
         var kongApis = results.kongApis;
 
         var todoLists = assembleApiTodoLists(portalApis, kongApis);
-        debug(utils.getText(todoLists));
+        debug('Infos on sync APIs todo list:');
+        debug('  add items: ' + todoLists.addList.length);
+        debug('  update items: ' + todoLists.updateList.length);
+        debug('  delete items: ' + todoLists.deleteList.length);
+        //debug(utils.getText(todoLists));
 
         async.series({
             addApis: function (callback) {
@@ -48,12 +54,18 @@ sync.syncApis = function (app, done) {
 sync.syncPlugins = function (app, portalApi, kongApi, done) {
     debug('syncPlugins()');
     var todoLists = assemblePluginTodoLists(portalApi, kongApi);
-    debug(utils.getText(todoLists));
+    //debug(utils.getText(todoLists));
+    debug('Infos on sync API Plugins todo list:');
+    debug('  add items: ' + todoLists.addList.length);
+    debug('  update items: ' + todoLists.updateList.length);
+    debug('  delete items: ' + todoLists.deleteList.length);
 
+    /*
     debug('portalApi');
     debug(portalApi);
     debug('kongApi');
     debug(kongApi);
+    */
 
     async.series({
         addPlugins: function (callback) {
@@ -73,44 +85,133 @@ sync.syncPlugins = function (app, portalApi, kongApi, done) {
     });
 };
 
-sync.syncConsumers = function (app, done) {
-    debug('syncConsumers()');
-    async.parallel({
-        portalConsumers: function (callback) {
-            portal.getPortalConsumers(app, callback);
-        },
-        kongConsumers: function (callback) {
-            kong.getKongConsumers(app, callback);
-        }
+// =========== CONSUMERS ============
+
+sync.syncAllConsumers = function (app, callback) {
+    debug('syncAllConsumers()');
+    portal.getAllPortalConsumers(app, function (err, portalConsumers) {
+        if (err)
+            return callback(err);
+        syncConsumers(app, portalConsumers, callback);
+    });
+};
+
+sync.syncAppConsumers = function (app, appId, callback) {
+    debug('syncAppConsumers(): ' + appId);
+    async.waterfall([
+        callback => portal.getAppConsumers(app, appId, callback), // One app may result in multiple consumers (one per subscription)
+        (appConsumers, callback) => syncConsumers(app, appConsumers, callback)
+    ], function (err) {
+        if (err)
+            return callback(err);
+        // We're fine.
+        debug('syncAppConsumers() succeeded for app ' + appId);
+        callback(null);
+    });
+};
+
+sync.syncUserConsumer = function (app, userId, callback) {
+    debug('syncUserConsumer(): ' + userId);
+    async.waterfall([
+        callback => portal.getUserConsumer(app, userId, callback),
+        (appConsumers, callback) => syncConsumers(app, appConsumers, callback)
+    ], function (err) {
+        if (err)
+            return callback(err);
+        // We're fine.
+        debug('syncUserConsumer() succeeded for user ' + userId);
+        callback(null);
+    });
+};
+
+/*
+ If we delete an application, we also need to know which subscriptions
+ it has, as the consumers in kong are not per application, but rather
+ per subscription. I.e., we cannot deduce which Kong consumers belong
+ to a registered application in the API Portal.
+
+ See below what needs to be in the subscriptionList.
+ */
+sync.deleteAppConsumers = function (app, appId, subscriptionList, callback) {
+    debug('deleteAppConsumers(): ' + appId);
+    async.mapLimit(subscriptionList, MAX_ASYNC_CALLS, function (subsInfo, callback) {
+        sync.deleteAppSubscriptionConsumer(app, subsInfo, callback);
     }, function (err, results) {
         if (err)
+            return callback(err);
+        debug('deleteAppConsumers() for app ' + appId + ' succeeded.');
+        callback(null);
+    });
+};
+
+/*
+ At least the following is needed
+
+ subsInfo: {
+     application: <...>,
+     api: <...>,
+     auth: <auth method> (one of key-auth, oauth2, oauth2-implicit)
+     plan: <...>, // optional
+     userId: <...> // optional
+ }
+ */
+sync.deleteAppSubscriptionConsumer = function (app, subsInfo, callback) {
+    debug('deleteAppSubscriptionConsumer() appId: ' + subsInfo.application + ', api: ' + subsInfo.api);
+    if (subsInfo.auth === 'oauth2-implicit') {
+        // Nothing to do for such a subscription.
+        debug('Not needed for oauth2-implicit subscription.');
+        return setTimeout(callback, 0);
+    }
+    kong.deleteConsumerWithUsername(app, utils.makeUserName(subsInfo.application, subsInfo.api), callback);
+};
+
+sync.deleteUserConsumer = function (app, userId, callback) {
+    debug('deleteUserConsumer() ' + userId);
+    kong.deleteConsumerWithCustomId(app, userId, callback);
+};
+
+function syncConsumers(app, portalConsumers, done) {
+    if (portalConsumers.length == 0) {
+        debug('syncConsumers() - nothing to do (empty consumer list).');
+        return setTimeout(done, 0);
+    }
+    debug('syncConsumers()');
+    // Get the corresponding Kong consumers
+    kong.getKongConsumers(app, portalConsumers, function (err, resultConsumers) {
+        if (err)
             return done(err);
+        const kongConsumers = [];
+        for (let i=0; i<resultConsumers.length; ++i) {
+            if (resultConsumers[i])
+                kongConsumers.push(resultConsumers[i]);
+        }
 
-        var portalConsumers = results.portalConsumers;
-        var kongConsumers = results.kongConsumers;
-
+        debug('syncConsumers(): Creating Todo lists.');
         var todoLists = assembleConsumerTodoLists(portalConsumers, kongConsumers);
-        debug(utils.getText(todoLists));
+        debug('Infos on sync consumers todo list:');
+        debug('  add items: ' + todoLists.addList.length);
+        debug('  update items: ' + todoLists.updateList.length);
+        debug('  delete items: ' + todoLists.deleteList.length);
 
         async.series({
-            addConsumers: function (callback) {
-                kong.addKongConsumers(app, todoLists.addList, callback);
-            },
-            updateConsumers: function (callback) {
-                // Will call syncConsumerApiPlugins
-                kong.updateKongConsumers(app, sync, todoLists.updateList, callback);
-            },
+            addConsumers: callback => kong.addKongConsumers(app, todoLists.addList, callback),
+            updateConsumers: callback => kong.updateKongConsumers(app, sync, todoLists.updateList, callback), // Will call syncConsumerApiPlugins
             deleteConsumers: function (callback) {
-                kong.deleteKongConsumers(app, todoLists.deleteList, callback);
+                if (todoLists.deleteList.length > 0) {
+                    console.error(todoLists.deleteList);
+                    throw new Error('deleteConsumer in sync.syncConsumers() must not be called anymore.');
+                }
+                setTimeout(callback, 0);
+                //kong.deleteKongConsumers(app, todoLists.deleteList, callback);
             }
         }, function (err, results) {
             if (err)
                 return done(err);
-            debug('sync.syncConsumers() done.');
+            debug('syncConsumers() done.');
             return done(null);
         });
     });
-};
+}
 
 sync.syncConsumerApiPlugins = function (app, portalConsumer, kongConsumer, done) {
     debug('syncConsumerApiPlugins()');
