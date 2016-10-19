@@ -55,7 +55,7 @@ portal.getPortalApis = function (app, done) {
         apiList.apis.push(portalApi);
 
         // And the auth Servers please
-        for (let i=0; i<authServerList.length; ++i)
+        for (let i = 0; i < authServerList.length; ++i)
             apiList.apis.push(authServerList[i]);
 
         debug('getPortalApis():');
@@ -102,6 +102,7 @@ function getAuthServerApis(app, callback) {
         }, function (err, authServers) {
             if (err)
                 return callback(err);
+            debug(JSON.stringify(authServers, null, 2));
             callback(null, authServers);
         });
     });
@@ -221,7 +222,7 @@ portal.getAllPortalConsumers = function (app, callback) {
     }, function (err, results) {
         if (err)
             return callback(err);
-        
+
         const appConsumers = results.appConsumers;
         const userConsumers = results.userConsumers;
 
@@ -262,7 +263,7 @@ function getAllUserConsumers(app, callback) {
 function userHasGroup(userInfo, group) {
     if (userInfo &&
         userInfo.groups) {
-        for (var i=0; i<userInfo.groups.length; ++i) {
+        for (var i = 0; i < userInfo.groups.length; ++i) {
             if (userInfo.groups[i] == group)
                 return true;
         }
@@ -313,7 +314,7 @@ function enrichUsers(app, userList, done) {
             }
 
             // If we're here, glob.api.portal.enableApi must be true
-            var requiredGroup = app.kongGlobals.api.portal.requiredGroup; 
+            var requiredGroup = app.kongGlobals.api.portal.requiredGroup;
             if (requiredGroup &&
                 !userHasGroup(thisUser, requiredGroup)) {
                 console.log('User ' + thisUser.email + ' does not have correct group.');
@@ -536,7 +537,7 @@ function injectImplicitAuth(app, api) {
     var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
     if (aclPlugin)
         throw new Error("If you use 'oauth2-implicit' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
-    
+
     let scopes = ['api'];
     let mandatory_scope = false;
     let token_expiration = 3600;
@@ -569,8 +570,8 @@ function injectImplicitAuth(app, api) {
 
 function isInternalApiEnabled(app) {
     return (app.kongGlobals.api &&
-            app.kongGlobals.api.portal &&
-            app.kongGlobals.api.portal.enableApi);
+        app.kongGlobals.api.portal &&
+        app.kongGlobals.api.portal.enableApi);
 }
 
 module.exports = portal;
