@@ -68,6 +68,7 @@ function buildError(message, statusCode) {
     if (statusCode)
         err.statusCode = statusCode;
     err.message = 'Kong Adapter - Register OAuth user: ' + message;
+    return err;
 }
 
 function registerOAuthUser(app, inputData, callback) {
@@ -121,7 +122,9 @@ function registerOAuthUser(app, inputData, callback) {
         callback => syncConsumerApiPlugins(app, oauthInfo, callback),
         callback => authorizeConsumer(app, oauthInfo, callback)
     ], function (err, results) {
+        debug('registerOAuthUser async series returned.');
         if (err) {
+            debug('but failed.');
             console.error(err);
             console.error(err.stackTrace);
             return callback(err);
@@ -477,7 +480,7 @@ function authorizeConsumer(app, oauthInfo, callback) {
         if (res.statusCode > 299) {
             debug('Kong did not create an access token, response body:');
             debug(body);
-            return callback(buildError('Authorize user with Kong failed', res.statusCode));
+            return callback(buildError('Authorize user with Kong failed: ' + utils.getText(body), res.statusCode));
         }
         const jsonBody = utils.getJson(body);
         oauthInfo.redirectUri = jsonBody.redirect_uri;
