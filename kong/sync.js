@@ -32,15 +32,15 @@ sync.syncApis = function (app, done) {
         //debug(utils.getText(todoLists));
 
         async.series({
-            addApis: function (callback) {
-                kong.addKongApis(app, todoLists.addList, callback);
-            },
             updateApis: function (callback) {
                 // Will call syncPlugins
                 kong.updateKongApis(app, sync, todoLists.updateList, callback);
             },
             deleteApis: function (callback) {
                 kong.deleteKongApis(app, todoLists.deleteList, callback);
+            },
+            addApis: function (callback) {
+                kong.addKongApis(app, todoLists.addList, callback);
             }
         }, function (err) {
             if (err)
@@ -263,6 +263,7 @@ function assembleApiTodoLists(portalApis, kongApis) {
             handledKongApis[kongApi.api.name] = true;
         }
         else {
+            debug('Did not find API ' + portalApi.id + ' in Kong, will add.');
             // Api not known in Kong, we need to add this
             addList.push({
                 portalApi: portalApi
@@ -275,6 +276,7 @@ function assembleApiTodoLists(portalApis, kongApis) {
     for (var i = 0; i < kongApis.apis.length; ++i) {
         let kongApi = kongApis.apis[i];
         if (!handledKongApis[kongApi.api.name]) {
+            debug('API ' + kongApi.api.name + ' not found in portal definition, will delete.');
             deleteList.push({
                 kongApi: kongApi
             });
