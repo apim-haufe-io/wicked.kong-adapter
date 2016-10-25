@@ -25,7 +25,7 @@ As a change now, we will do the following:
 * New: The Kong Adapter will react to "delete application" events, and subsequently delete those applications from the Kong database
     * Due to the fact that not applications, but the application's subscriptions are mapped to consumers in Kong, the delete app webhook needs to also transfer the current subscriptions of the application to listening subscribers (otherwise these would be left hanging). **done**
     * Caveat: A new synchronization would not help in deleting these subscriptions! This should be looked into; this means it's more or less mandatory to re-deploy Kong and its PGSQL instance from time to time to be sure it's in a reconciliated state. Plus: See below - at startup check for pending `delete` webhook events. **done**
-    * Possible additional mitigation: Run a cleanup step from time to time checking all consumers, and removing consumers which cannot be mapped to any current applications from the API Portal (difficulty: How are the consumers from oauth2-implicit APIs distinguished from application consumers from the API Portal? --> OAuth2 users have email addresses in their `username`, the web apps have not)
+    * Possible additional mitigation: Run a cleanup step from time to time checking all consumers, and removing consumers which cannot be mapped to any current applications from the API Portal.
 
 #### Sub-problems (partly not solved):
 

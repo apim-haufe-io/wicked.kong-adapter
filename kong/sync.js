@@ -157,11 +157,6 @@ sync.deleteAppConsumers = function (app, appId, subscriptionList, callback) {
  */
 sync.deleteAppSubscriptionConsumer = function (app, subsInfo, callback) {
     debug('deleteAppSubscriptionConsumer() appId: ' + subsInfo.application + ', api: ' + subsInfo.api);
-    if (subsInfo.auth === 'oauth2-implicit') {
-        // Nothing to do for such a subscription.
-        debug('Not needed for oauth2-implicit subscription.');
-        return setTimeout(callback, 0);
-    }
     kong.deleteConsumerWithUsername(app, utils.makeUserName(subsInfo.application, subsInfo.api), callback);
 };
 

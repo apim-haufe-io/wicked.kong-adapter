@@ -147,6 +147,8 @@ utils.kongGet = function(app, url, callback) {
 };
 
 function kongAction(app, method, url, body, expectedStatusCode, callback) {
+    //console.log('$$$$$$ kongAction: ' + method + ' ' + url);
+    //console.log(body);
     debug('kongAction(), ' + method + ', ' + url);
     var kongUrl = app.get('kong_url');
     var methodBody = {

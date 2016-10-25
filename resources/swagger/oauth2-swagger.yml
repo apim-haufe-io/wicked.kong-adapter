@@ -29,9 +29,9 @@ definitions:
   implicitRegistrationType:
     type: object
     properties:
-      email:
-        type: string
-      custom_id:
+#      email:
+#        type: string
+      authenticated_userid:
         type: string
       api_id:
         type: string
@@ -41,12 +41,12 @@ definitions:
         type: array
         items:
           type: string
-      headers:
-        type: array
-        items:
-          type: object
-          additionalProperties:
-            type: string
+#      headers:
+#        type: array
+#        items:
+#          type: object
+#          additionalProperties:
+#            type: string
   implicitSuccessType:
     type: object
     properties:

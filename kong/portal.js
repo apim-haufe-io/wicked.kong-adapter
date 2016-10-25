@@ -174,7 +174,7 @@ This is what we want from the portal:
                     "name": "My Application",
                     "client_id": "my-app-petstore",
                     "client_secret": "uwortiu4eot8g7he59t87je59thoerizuoh",
-                    "redirect_uri": "http://dummy.org"
+                    "redirect_uri": ["http://dummy.org"]
                 }
             ]
         },
@@ -353,39 +353,63 @@ function enrichUsers(app, userList, done) {
     });
 }
 
-function enrichApplications(app, applicationList, apiPlans, done) {
-    debug('enrichApplications(), applicationList = ' + utils.getText(applicationList));
-    async.mapLimit(applicationList, MAX_PARALLEL_CALLS, function (appInfo, callback) {
-        utils.apiGet(app, 'applications/' + appInfo.id + '/subscriptions', function (err, subsList) {
+// Returns
+// {
+//    application: { id: ,... }
+//    subscriptions: [ ... ]
+// }
+function getApplicationData(app, appId, callback) {
+    debug('getApplicationData() ' + appId);
+    async.parallel({
+        subscriptions: callback => utils.apiGet(app, 'applications/' + appId + '/subscriptions', function (err, subsList) {
             if (err && err.status == 404) {
                 // Race condition; web hook processing was not finished until the application
                 // was deleted again (can normally just happen when doing automatic testing).
-                console.error('*** Application with ID ' + appInfo.id + ' was not found.');
+                console.error('*** Get Subscriptions: Application with ID ' + appId + ' was not found.');
                 return callback(null, []); // Treat as empty
             } else if (err) {
                 return callback(err);
             }
             return callback(null, subsList);
-        });
+        }),
+        application: callback => utils.apiGet(app, 'applications/' + appId, function (err, appInfo) {
+            if (err && err.status == 404) {
+                // See above.
+                console.error('*** Get Application: Application with ID ' + appId + ' was not found.');
+                return callback(null, null);
+            } else if (err) {
+                return callback(err);
+            }
+            return callback(null, appInfo);
+
+        })
+    }, function (err, results) {
+        if (err)
+            return callback(err);
+        callback(null, results);
+    });
+}
+
+function enrichApplications(app, applicationList, apiPlans, done) {
+    debug('enrichApplications(), applicationList = ' + utils.getText(applicationList));
+    async.mapLimit(applicationList, MAX_PARALLEL_CALLS, function (appInfo, callback) {
+        getApplicationData(app, appInfo.id, callback);
     }, function (err, results) {
         if (err)
             return done(err);
 
-        var consumerList = [];
+        const consumerList = [];
         for (var resultIndex = 0; resultIndex < results.length; ++resultIndex) {
-            var appSubsInfo = results[resultIndex];
-            for (var subsIndex = 0; subsIndex < appSubsInfo.length; ++subsIndex) {
-                var appSubs = appSubsInfo[subsIndex];
+            const appInfo = results[resultIndex].application;
+            const appSubsInfo = results[resultIndex].subscriptions;
+            for (let subsIndex = 0; subsIndex < appSubsInfo.length; ++subsIndex) {
+                const appSubs = appSubsInfo[subsIndex];
                 // Only propagate approved subscriptions
                 if (!appSubs.approved)
                     continue;
-                // Don't propagate oauth2-implicit subscriptions
-                if (appSubs.auth === 'oauth2-implicit') {
-                    debug('Not syncing implicit OAuth2 API ' + appSubs.api + ' for app ' + appSubs.application);
-                    continue;
-                }
+
                 debug(utils.getText(appSubs));
-                var consumerInfo = {
+                const consumerInfo = {
                     consumer: {
                         username: utils.makeUserName(appSubs.application, appSubs.api),
                         custom_id: appSubs.id
@@ -403,6 +427,13 @@ function enrichApplications(app, applicationList, apiPlans, done) {
                         client_secret: appSubs.clientSecret,
                         redirect_uri: ['http://dummy.org']
                     }];
+                } else if ("oauth2-implicit" == appSubs.auth) {
+                    consumerInfo.plugins.oauth2 = [{
+                        name: appSubs.application,
+                        client_id: appSubs.clientId,
+                        client_secret: appSubs.clientSecret,
+                        redirect_uri: [appInfo.redirectUri]
+                    }];
                 } else if (!appSubs.auth || "key-auth" == appSubs.auth) {
                     consumerInfo.plugins["key-auth"] = [{
                         key: appSubs.apikey
@@ -413,10 +444,10 @@ function enrichApplications(app, applicationList, apiPlans, done) {
                 }
 
                 // Now the API level plugins from the Plan
-                var apiPlan = getPlanById(apiPlans, appSubs.plan);
+                const apiPlan = getPlanById(apiPlans, appSubs.plan);
                 if (!apiPlan) {
-                    let err2 = new Error('Unknown API plan strategy: ' + appSubs.plan + ', for application "' + appSubs.application + '", API "' + appSubs.api + '".');
-                    return done(err2);
+                    const err = new Error('Unknown API plan strategy: ' + appSubs.plan + ', for application "' + appSubs.application + '", API "' + appSubs.api + '".');
+                    return done(err);
                 }
 
                 if (apiPlan.config && apiPlan.config.plugins)
@@ -501,7 +532,7 @@ function injectClientCredentialsAuth(app, api) {
         throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
     let token_expiration = 3600;
     if (api.settings && api.settings.token_expiration)
-        token_expiration = api.settings.token_expiration;
+        token_expiration = Number(api.settings.token_expiration);
     plugins.push({
         name: 'oauth2',
         enabled: true,
@@ -548,7 +579,7 @@ function injectImplicitAuth(app, api) {
         if (api.settings.mandatory_scope)
             mandatory_scope = api.settings.mandatory_scope;
         if (api.settings.token_expiration)
-            token_expiration = api.settings.token_expiration;
+            token_expiration = Number(api.settings.token_expiration);
     }
 
     plugins.push({

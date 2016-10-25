@@ -25,7 +25,322 @@ oauth2.registerUser = function (app, res, inputData) {
     }, function (err, results) {
         if (err) {
             console.error(err.message);
-            console.error(err.stackTrace);
+            console.error(err.stack);
+            if (!err.statusCode && !err.status)
+                err.statusCode = 500;
+            return res.status(err.statusCode || err.status).json({
+                message: err.message
+            });
+        }
+
+        // Fetch result of registerOAuthUser
+        const redirectUri = results.redirectUri;
+
+        res.json({
+            redirect_uri: redirectUri
+        });
+    });
+};
+
+// Ok, this just looks as if it were async, but isn't.
+function validateInputData(userInfo, callback) {
+    debug('validateUserInfo()');
+    if (!userInfo.authenticated_userid)
+        return callback(buildError('authenticated_userid is mandatory.'));
+    if (!userInfo.api_id)
+        return callback(buildError('api_id is mandatory.'));
+    if (!userInfo.client_id)
+        return callback(buildError('client_id is mandatory.'));
+    if (userInfo.scope) {
+        if ((typeof(userInfo.scope) !== 'string') &&
+            !Array.isArray(userInfo.scope))
+            return callback(buildError('scope has to be either a string or a string array'));
+    }
+    callback(null);
+}
+
+function buildError(message, statusCode) {
+    debug('buildError(): ' + message + ', status code: ' + statusCode);
+    const err = new Error();
+    err.statusCode = 400;
+    if (statusCode)
+        err.statusCode = statusCode;
+    err.message = 'Kong Adapter - Register OAuth user: ' + message;
+    return err;
+}
+
+
+function registerOAuthUser(app, inputData, callback) {
+    debug('registerOAuthUser()');
+    // We'll add info to this thing along the way; this is how it will look:
+    // {
+    //   inputData: {
+    //     authenticated_userid: (user custom ID, e.g. from 3rd party DB),
+    //     api_id: (API ID)
+    //     client_id: (The app's client ID, from subscription)
+    //     scope: [ list of wanted scopes ] (optional, depending on API definition)
+    //   }
+    //   provisionKey: ...
+    //   subsInfo: {
+    //     application: (app ID)
+    //     api: (api ID)
+    //     auth: 'oauth2-implicit',
+    //     plan: (plan ID)
+    //     clientId: (client ID)
+    //     clientSecret: (client secret)
+    //     ...
+    //   },
+    //   appInfo: {
+    //     id: (app ID),
+    //     name: (Application friendly name),
+    //     redirectUri: (App's redirect URI)   
+    //   },
+    //   consumer: {
+    //     id: (Kong consumer ID),
+    //     username: (app id)$(api_id)
+    //     custom_id: (subscription id)
+    //   },
+    //   apiInfo: {
+    //     strip_request_path: true,
+    //     preserve_host: false,
+    //     name: "mobile",
+    //     request_path : "/mobile/v1",
+    //     id: "7baec4f7-131d-44e9-a746-312352cedab1",
+    //     upstream_url: "https://upstream.url/api/v1",
+    //     created_at: 1477320419000
+    //   }
+    //   redirectUri: (redirect URI including access token)
+    // }
+    const oauthInfo = { inputData: inputData };
+
+    async.series([
+        callback => lookupSubscription(app, oauthInfo, callback),
+        //callback => lookupApplication(app, oauthInfo, callback),
+        callback => getProvisionKey(app, oauthInfo, callback),
+        callback => lookupConsumer(app, oauthInfo, callback),
+        callback => lookupApi(app, oauthInfo, callback),
+        callback => authorizeConsumer(app, oauthInfo, callback)
+    ], function (err, results) {
+        debug('registerOAuthUser async series returned.');
+        if (err) {
+            debug('but failed.');
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+
+        // Oh, wow, that worked.
+        callback(null, oauthInfo.redirectUri);
+    });
+}
+
+function lookupSubscription(app, oauthInfo, callback) {
+    debug('lookupSubscription()');
+    utils.apiGet(app, 'subscriptions/' + oauthInfo.inputData.client_id, function (err, subscription) {
+        if (err) {
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+        const subsInfo = subscription.subscription;
+        debug('subsInfo:');
+        debug(subsInfo);
+        const appInfo = subscription.application;
+        debug('appInfo:');
+        debug(appInfo);
+        // Validate that the subscription is for the correct API
+        if (oauthInfo.inputData.api_id !== subsInfo.api) {
+            debug('inputData:');
+            debug(oauthInfo.inputData);
+            debug('subInfo:');
+            debug(subsInfo);
+            return callback(buildError('Subscription API does not match client_id'));
+        }
+        oauthInfo.subsInfo = subsInfo;
+        oauthInfo.appInfo = appInfo;
+        return callback(null, oauthInfo);
+    });
+}
+
+oauth2.provisionKeys = {};
+function getProvisionKey(app, oauthInfo, callback) {
+    debug('getProvisionKey() for ' + oauthInfo.inputData.api_id);
+    const apiId = oauthInfo.inputData.api_id;
+    if (oauth2.provisionKeys[apiId]) {
+        oauthInfo.provisionKey = oauth2.provisionKeys[apiId];
+        return callback(null, oauthInfo);
+    }
+
+    // We haven't seen this API yet, get it from le Kong.
+    utils.kongGet(app, 'apis/' + apiId + '/plugins?name=oauth2', function (err, body) {
+        if (err) {
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+        if (body.data.length <= 0)
+            return callback(buildError('For API ' + apiId + ', no oauth2 plugin seems to be configured.'));
+        const oauth2Plugin = body.data[0];
+        if (!oauth2Plugin.config.enable_implicit_grant)
+            return callback(buildError('API ' + apiId + ' is not configured for the OAuth2 implicit grant.'));
+        if (!oauth2Plugin.config.provision_key)
+            return callback(buildError('API ' + apiId + ' does not have a valid provision_key.'));
+        // Looks good, remember dat thing
+        oauthInfo.provisionKey = oauth2Plugin.config.provision_key;
+        callback(null, oauthInfo);
+    });
+}
+
+function lookupConsumer(app, oauthInfo, callback) {
+    const customId = oauthInfo.subsInfo.id;
+    debug('lookupConsumer() for subscription ' + customId);
+
+    utils.kongGet(app, 'consumers?custom_id=' + qs.escape(customId), function (err, consumer) {
+        if (err) {
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+
+        debug('Found these consumers for subscription ' + customId);
+        debug(consumer);
+
+        if (!consumer.total || 
+            consumer.total <= 0 || 
+            !consumer.data || 
+            consumer.data.length <= 0)
+            return callback(buildError('Could not retrieve Kong consumer for API consumer with custom_id ' + customId));
+
+        oauthInfo.consumer = consumer.data[0];
+        callback(null, oauthInfo);
+    });
+}
+
+function lookupApi(app, oauthInfo, callback) {
+    const apiId = oauthInfo.subsInfo.api;
+    debug('lookupApi() for API + ' + apiId);
+    utils.kongGet(app, 'apis/' + apiId, function (err, apiInfo) {
+        if (err) {
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+        if (!apiInfo.request_path)
+            return callback(buildError('API ' + apiId + ' does not have a valid request_path setting.'));
+        oauthInfo.apiInfo = apiInfo;
+        return callback(null, oauthInfo);
+    });
+}
+
+function buildAuthorizeUrl(apiUrl, requestPath, additionalPath) {
+    let hostUrl = apiUrl;
+    let reqPath = requestPath;
+    let addPath = additionalPath;  
+    if (!hostUrl.endsWith('/'))
+        hostUrl = hostUrl + '/';
+    if (reqPath.startsWith('/'))
+        reqPath = reqPath.substring(1); // cut leading /
+    if (!reqPath.endsWith('/'))
+        reqPath = reqPath + '/';
+    if (addPath.startsWith('/'))
+        addPath = addPath.substring(1); // cut leading /
+    return hostUrl + reqPath + addPath;
+}
+
+function authorizeConsumer(app, oauthInfo, callback) {
+    debug('authorizeConsumer()');
+    // Now we need to assemble the API host for this system. It's in globals.
+    let apiUrl = app.kongGlobals.network.schema + '://' +
+        app.kongGlobals.network.apiHost; // e.g., https://api.mycompany.com, or http://local.ip:8000
+    if (!apiUrl.endsWith('/'))
+        apiUrl = apiUrl + '/';
+    const authorizeUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.request_path, '/oauth2/authorize');
+    debug('authorizeUrl: ' + authorizeUrl);
+
+    let headers = null;
+    let agent = null;
+
+    // Workaround for local connections and testing
+    if ('http' === app.kongGlobals.network.schema) {
+        headers = { 'X-Forwarded-Proto': 'https' };
+    } else if ('https' === app.kongGlobals.network.schema) {
+        // Make sure we accept self signed certs
+        agent = sslAgent;
+    }
+
+    let scope = null;
+    if (oauthInfo.inputData.scope) {
+        let s = oauthInfo.inputData.scope;
+        if (typeof(s) === 'string')
+            scope = s;
+        else if (Array.isArray(s))
+            scope = s.join(' ');
+        else // else: what?
+            debug('unknown type of scope input parameter: ' + typeof(s));
+    }
+    debug('requested scope: ' + scope);
+
+    const oauthBody = {
+        response_type: 'token',
+        provision_key: oauthInfo.provisionKey,
+        client_id: oauthInfo.subsInfo.clientId,
+        redirect_uri: oauthInfo.appInfo.redirectUri,
+        authenticated_userid: oauthInfo.inputData.authenticated_userid
+    };
+    if (scope)
+        oauthBody.scope = scope;
+    debug(oauthBody);
+
+    // Jetzt kommt der spannende Moment, wo der Frosch ins Wasser rennt
+    request.post({
+        url: authorizeUrl,
+        headers: headers,
+        agent: agent,
+        json: true,
+        body: oauthBody
+    }, function (err, res, body) {
+        if (err) {
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+        if (res.statusCode > 299) {
+            debug('Kong did not create an access token, response body:');
+            debug(body);
+            return callback(buildError('Authorize user with Kong failed: ' + utils.getText(body), res.statusCode));
+        }
+        const jsonBody = utils.getJson(body);
+        oauthInfo.redirectUri = jsonBody.redirect_uri;
+        return callback(null, oauthInfo);
+    });
+}
+
+////// CODE ATTIC //////
+
+/*
+ * The below code is not bad, but it does things for which Kong
+ * was not really intended. It federates a user email and custom_id
+ * as a consumer into Kong, instead of just passing in the "authenticated_userid"
+ * into the OAuth2 token (this is intended). I don't want to throw the
+ * code away, but have just commented it out for the time being.
+ *
+ * It may be that this code is re-used some time in the future, but
+ * for the first support of the oauth2 implicit grant flow, I will
+ * leave it out.
+ * 
+ * /Martin
+//
+ 
+oauth2.registerUser = function (app, res, inputData) {
+    debug('registerUser()');
+    debug(inputData);
+    async.series({
+        validate: function (callback) { validateInputData(inputData, callback); },
+        redirectUri: function (callback) { registerOAuthUser(app, inputData, callback); }
+    }, function (err, results) {
+        if (err) {
+            console.error(err.message);
+            console.error(err.stack);
             if (!err.statusCode && !err.status)
                 err.statusCode = 500;
             return res.status(err.statusCode || err.status).json({
@@ -126,7 +441,7 @@ function registerOAuthUser(app, inputData, callback) {
         if (err) {
             debug('but failed.');
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
 
@@ -144,7 +459,7 @@ function lookupSubscription(app, oauthInfo, callback) {
     utils.apiGet(app, 'subscriptions/' + oauthInfo.inputData.client_id, function (err, subscription) {
         if (err) {
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
         const subsInfo = subscription.subscription;
@@ -180,7 +495,7 @@ function getProvisionKey(app, oauthInfo, callback) {
     utils.kongGet(app, 'apis/' + apiId + '/plugins?name=oauth2', function (err, body) {
         if (err) {
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
         if (body.data.length <= 0)
@@ -233,7 +548,7 @@ function createConsumer(app, oauthInfo, callback) {
     }, function (err, result) {
         if (err) {
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
         const consumer = result;
@@ -252,7 +567,7 @@ function checkForConsumerApp(app, oauthInfo, callback) {
     utils.kongGet(app, oauth2AppUrl, function (err, result) {
         if (err) {
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
         if (result.total <= 0) {
@@ -290,7 +605,7 @@ function deleteFaultyConsumerApp(app, oauthInfo, callback) {
     utils.kongDelete(app, oauthAppUrl, function (err, result) {
         if (err) {
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
         delete oauthInfo.faultyConsumerAppId;
@@ -314,7 +629,7 @@ function createConsumerApp(app, oauthInfo, callback) {
     utils.kongPost(app, consumerOAuthUrl, consumerOAuthBody, function (err, result) {
         if (err) {
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
 
@@ -349,7 +664,7 @@ function syncConsumerApiPlugins(app, oauthInfo, callback) {
     }, function (err, results) {
         if (err) {
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
         const plan = results.getPlan;
@@ -369,7 +684,7 @@ function syncConsumerApiPlugins(app, oauthInfo, callback) {
         sync.syncConsumerApiPlugins(app, portalConsumer, kongConsumer, function (err) {
             if (err) {
                 console.error(err);
-                console.error(err.stackTrace);
+                console.error(err.stack);
                 return callback(err);
             }
             callback(null, oauthInfo);
@@ -474,7 +789,7 @@ function authorizeConsumer(app, oauthInfo, callback) {
     }, function (err, res, body) {
         if (err) {
             console.error(err);
-            console.error(err.stackTrace);
+            console.error(err.stack);
             return callback(err);
         }
         if (res.statusCode > 299) {
@@ -487,5 +802,7 @@ function authorizeConsumer(app, oauthInfo, callback) {
         return callback(null, oauthInfo);
     });
 }
+
+//*/
 
 module.exports = oauth2;
