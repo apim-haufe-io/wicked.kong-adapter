@@ -342,7 +342,7 @@ function enrichUsers(app, userList, done) {
                 apiPlugins: []
             };
 
-            console.log(userConsumer);
+            debug(userConsumer);
 
             userConsumers.push(userConsumer);
         }

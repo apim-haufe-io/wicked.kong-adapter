@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+'use strict';
+
 /**
  * Module dependencies.
  */
@@ -7,16 +9,8 @@
 var app = require('../app');
 var debug = require('debug')('kong-adapter:kong-adapter');
 var http = require('http');
-var request = require('request');
 var async = require('async');
-
-var envReader = require('portal-env');
-
-debug("Kong Adapter environment: " + app.get('env'));
-
-var environment = app.get('env');
-if (!environment)
-    throw new Error('Environment variable NODE_ENV must be set.');
+var wicked = require('wicked-sdk');
 
 var kong = require('../kong/main');
 
@@ -26,27 +20,6 @@ var kong = require('../kong/main');
 
 var port = normalizePort(process.env.PORT || '3002');
 app.set('port', port);
-
-var apiUrl = envReader.resolveApiUrl();
-app.set('api_url', apiUrl);
-
-var myUrl = process.env.PORTAL_KONG_ADAPTER_URL;
-if (!myUrl) {
-    myUrl = envReader.guessServiceUrl('portal-kong-adapter', '3002');
-    console.log('Environment variable PORTAL_KONG_ADAPTER_URL is not set, defaulting to ' + myUrl + '. If this is not correct, please set before starting this process.');
-}
-if (!myUrl.endsWith('/')) // Add a trailing slash here.
-    myUrl = myUrl + '/';
-app.set('my_url', myUrl);
-
-var kongUrl = process.env.PORTAL_KONG_ADMIN_URL;
-if (!kongUrl) {
-    kongUrl = envReader.guessServiceUrl('kong', '8001');
-    console.log('Environment variable PORTAL_KONG_ADMIN_URL is not set, defaulting to ' + kongUrl + '. If this is not correct, please set before starting this process.');
-}
-if (!kongUrl.endsWith('/'))
-    kongUrl = kongUrl + '/';
-app.set('kong_url', kongUrl);
 
 // Create HTTP server.
 var server = http.createServer(app);
@@ -61,33 +34,21 @@ debug('Waiting for API to be available.');
 app.apiAvailable = false;
 app.kongAvailable = false;
 
-async.parallel({
-    apiPing: function(callback) {
-        envReader.awaitUrl(apiUrl + 'ping', -1, 5000, function(err, result) {
-            debug('Await API returned.');
-            if (!err) {
-                app.apiAvailable = true;
-                debug('Await API succeeded.');
-            }
-            callback(err, result);
-        });
-    },
-    kongPing: function(callback) {
-        envReader.awaitUrl(kongUrl, -1, 5000, function(err, result) {
-            debug('Await Kong returned.');
-            if (!err) {
-                app.kongAvailable = true;
-                debug('Await Kong succeeded.');
-            }
-            callback(err, result);
-        });
-    }
-}, function (err) {
+async.series([
+    callback => wicked.initialize(callback),
+    callback => wicked.initMachineUser('kong-adapter', callback),
+    callback => wicked.awaitUrl(wicked.getInternalKongAdminUrl(), callback)
+], function (err) {
     debug('Kong and API await finished.');
     if (err) {
         debug('Failed waiting for API and/or Kong.');
         throw err;
     }
+
+    // Jot down a couple of URLs
+    app.set('kong_url', wicked.getInternalKongAdminUrl());
+    app.set('my_url', wicked.getInternalKongAdapterUrl());
+
     // Now let's register with the portal API; we'll use the standard Admin
     var initOptions = {
         initGlobals: true,

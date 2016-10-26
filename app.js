@@ -3,9 +3,8 @@ var path = require('path');
 var logger = require('morgan');
 var bodyParser = require('body-parser');
 var async = require('async');
-var request = require('request');
 var debug = require('debug')('kong-adapter:app');
-var correlationIdHandler = require('portal-env').CorrelationIdHandler();
+var correlationIdHandler = require('wicked-sdk').correlationIdHandler();
 var kongMain = require('./kong/main');
 var oauth2 = require('./kong/oauth2');
 var utils = require('./kong/utils');
@@ -22,10 +21,7 @@ app.use(correlationIdHandler);
 logger.token('correlation-id', function (req, res) {
     return req.correlationId;
 });
-if (app.get('env') == 'development')
-    app.use(logger('dev'));
-else
-    app.use(logger('{"date":":date[clf]","method":":method","url":":url","remote-addr":":remote-addr","version":":http-version","status":":status","content-length":":res[content-length]","referrer":":referrer","response-time":":response-time","correlation-id":":correlation-id"}'));
+app.use(logger('{"date":":date[clf]","method":":method","url":":url","remote-addr":":remote-addr","version":":http-version","status":":status","content-length":":res[content-length]","referrer":":referrer","response-time":":response-time","correlation-id":":correlation-id"}'));
 // Make sure we get the body directly as JSON. Thanks.
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));

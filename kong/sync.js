@@ -166,7 +166,7 @@ sync.deleteUserConsumer = function (app, userId, callback) {
 };
 
 function syncConsumers(app, portalConsumers, done) {
-    if (portalConsumers.length == 0) {
+    if (portalConsumers.length === 0) {
         debug('syncConsumers() - nothing to do (empty consumer list).');
         return setTimeout(done, 0);
     }

@@ -2,13 +2,13 @@
   "version": "0.9.3", 
   "private": true, 
   "dependencies": {
-    "portal-env": "../portal-env.tgz", 
     "express": "4.14.0", 
     "request": "2.74.0", 
     "body-parser": "1.15.2", 
     "morgan": "1.7.0", 
     "debug": "2.2.0", 
-    "async": "2.0.1"
+    "async": "2.0.1",
+    "wicked-sdk": "^0.10.7"
   }, 
   "scripts": {
     "start": "node ./bin/kong-adapter"
