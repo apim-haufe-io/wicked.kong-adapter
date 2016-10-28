@@ -421,18 +421,14 @@ function enrichApplications(app, applicationList, apiPlans, done) {
                     }
                 };
                 if ("oauth2" == appSubs.auth) {
+                    let redirectUri = appInfo.redirectUri;
+                    if (!redirectUri)
+                        redirectUri = 'https://dummy.org';
                     consumerInfo.plugins.oauth2 = [{
                         name: appSubs.application,
                         client_id: appSubs.clientId,
                         client_secret: appSubs.clientSecret,
-                        redirect_uri: ['http://dummy.org']
-                    }];
-                } else if ("oauth2-implicit" == appSubs.auth) {
-                    consumerInfo.plugins.oauth2 = [{
-                        name: appSubs.application,
-                        client_id: appSubs.clientId,
-                        client_secret: appSubs.clientSecret,
-                        redirect_uri: [appInfo.redirectUri]
+                        redirect_uri: [redirectUri]
                     }];
                 } else if (!appSubs.auth || "key-auth" == appSubs.auth) {
                     consumerInfo.plugins["key-auth"] = [{
@@ -451,7 +447,7 @@ function enrichApplications(app, applicationList, apiPlans, done) {
                 }
 
                 if (apiPlan.config && apiPlan.config.plugins)
-                    consumerInfo.apiPlugins = apiPlan.config.plugins;
+                    consumerInfo.apiPlugins = utils.clone(apiPlan.config.plugins);
                 else
                     consumerInfo.apiPlugins = [];
 
@@ -482,9 +478,7 @@ function injectAuthPlugins(app, apiList) {
         if ("key-auth" == thisApi.auth)
             injectKeyAuth(app, thisApi);
         else if ("oauth2" == thisApi.auth)
-            injectClientCredentialsAuth(app, thisApi);
-        else if ("oauth2-implicit" == thisApi.auth)
-            injectImplicitAuth(app, thisApi);
+            injectOAuth2Auth(app, thisApi);
         else
             throw new Error("Unknown 'auth' setting: " + thisApi.auth);
     }
@@ -519,6 +513,7 @@ function injectKeyAuth(app, api) {
     return api;
 }
 
+/*
 function injectClientCredentialsAuth(app, api) {
     debug('injectClientCredentialsAuth()');
     if (!api.config.plugins)
@@ -556,22 +551,27 @@ function injectClientCredentialsAuth(app, api) {
     });
     return api;
 }
+*/
 
-function injectImplicitAuth(app, api) {
+function injectOAuth2Auth(app, api) {
     debug('injectImplicitAuth()');
     if (!api.config.plugins)
         api.config.plugins = [];
     var plugins = api.config.plugins;
     var keyAuthPlugin = plugins.find(function (plugin) { return plugin.name == "key-auth"; });
     if (keyAuthPlugin)
-        throw new Error("If you use 'oauth2-implicit' in the apis.json, you must not provide a 'oauth2' plugin yourself. Remove it and retry.");
+        throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'oauth2' plugin yourself. Remove it and retry.");
     var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
     if (aclPlugin)
-        throw new Error("If you use 'oauth2-implicit' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
+        throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
 
-    let scopes = ['api'];
+    let scopes = [];
     let mandatory_scope = false;
     let token_expiration = 3600;
+    let enable_client_credentials = false;
+    let enable_implicit_grant = false;
+    let enable_authorization_code = false;
+    let enable_password_grant = false;
     if (api.settings) {
         // Check overridden defaults
         if (api.settings.scopes)
@@ -580,6 +580,14 @@ function injectImplicitAuth(app, api) {
             mandatory_scope = api.settings.mandatory_scope;
         if (api.settings.token_expiration)
             token_expiration = Number(api.settings.token_expiration);
+        if (api.settings.enable_client_credentials)
+            enable_client_credentials = api.settings.enable_client_credentials;
+        if (api.settings.enable_implicit_grant)
+            enable_implicit_grant = api.settings.enable_implicit_grant;
+        if (api.settings.enable_authorization_code)
+            enable_authorization_code = api.settings.enable_authorization_code;
+        if (api.settings.enable_password_grant)
+            enable_password_grant = api.settings.enable_password_grant;
     }
 
     plugins.push({
@@ -589,12 +597,19 @@ function injectImplicitAuth(app, api) {
             scopes: scopes,
             mandatory_scope: mandatory_scope,
             token_expiration: token_expiration,
-            enable_authorization_code: false,
-            enable_client_credentials: false,
-            enable_implicit_grant: true,
-            enable_password_grant: false,
+            enable_authorization_code: enable_authorization_code,
+            enable_client_credentials: enable_client_credentials,
+            enable_implicit_grant: enable_implicit_grant,
+            enable_password_grant: enable_password_grant,
             hide_credentials: true,
             accept_http_if_already_terminated: true
+        }
+    });
+    plugins.push({
+        name: 'acl',
+        enabled: true,
+        config: {
+            whitelist: [api.id]
         }
     });
 }

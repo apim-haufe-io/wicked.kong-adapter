@@ -4,6 +4,7 @@ var async = require('async');
 var debug = require('debug')('kong-adapter:oauth2');
 var qs = require('querystring');
 var request = require('request');
+var wicked = require('wicked-sdk');
 
 var utils = require('./utils');
 var sync = require('./sync');
@@ -16,12 +17,12 @@ var sslAgent = new https.Agent(agentOptions);
 
 var oauth2 = function () { };
 
-oauth2.registerUser = function (app, res, inputData) {
-    debug('registerUser()');
+oauth2.getImplicitToken = function (app, res, inputData) {
+    debug('getImplicitToken()');
     debug(inputData);
     async.series({
         validate: function (callback) { validateInputData(inputData, callback); },
-        redirectUri: function (callback) { registerOAuthUser(app, inputData, callback); }
+        redirectUri: function (callback) { getImplicitToken(app, inputData, callback); }
     }, function (err, results) {
         if (err) {
             console.error(err.message);
@@ -33,12 +34,86 @@ oauth2.registerUser = function (app, res, inputData) {
             });
         }
 
-        // Fetch result of registerOAuthUser
+        // Fetch result of getImplicitToken
         const redirectUri = results.redirectUri;
 
         res.json({
             redirect_uri: redirectUri
         });
+    });
+};
+
+oauth2.getPasswordToken = function (app, res, inputData) {
+    debug('getPasswordToken()');
+    debug(inputData);
+    async.series({
+        validate: function (callback) { validateInputData(inputData, callback); },
+        accessToken: function (callback) { getPasswordToken(app, inputData, callback); }
+    }, function (err, results) {
+        if (err) {
+            console.error(err.message);
+            console.error(err.stack);
+            if (!err.statusCode && !err.status)
+                err.statusCode = 500;
+            return res.status(err.statusCode || err.status).json({
+                message: err.message
+            });
+        }
+
+        // Fetch result of getPasswordToken
+        const accessToken = results.accessToken;
+
+        res.json(accessToken);
+    });
+};
+
+oauth2.getRefreshedToken = function (app, res, inputData) {
+    debug('getRefreshToken()');
+    debug(inputData);
+    async.series({
+        validate: function (callback) { validateRefreshInputData(inputData, callback); },
+        accessToken: function (callback) { getRefreshedToken(app, inputData, callback); }
+    }, function (err, results) {
+        if (err) {
+            console.error(err.message);
+            console.error(err.stack);
+            if (!err.statusCode && !err.status)
+                err.statusCode = 500;
+            return res.status(err.statusCode || err.status).json({
+                message: err.message
+            });
+        }
+
+        // Fetch result of getPasswordToken
+        const accessToken = results.accessToken;
+
+        res.json(accessToken);
+    });
+};
+
+oauth2.getTokenData = function (app, res, accessToken, refreshToken) {
+    debug('getTokenData(), access_token = ' + accessToken + ', refresh_token = ' + refreshToken);
+    let tokenUrl = 'oauth2_tokens?';
+    if (accessToken)
+        tokenUrl = tokenUrl + 'access_token=' + qs.escape(accessToken);
+    else if (refreshToken)
+        tokenUrl = tokenUrl + 'refresh_token=' + qs.escape(refreshToken);
+    utils.kongGet(app, tokenUrl, function (err, resultList) {
+        if (err) {
+            console.error(err.message);
+            console.error(err.stack);
+            if (!err.statusCode && !err.status)
+                err.statusCode = 500;
+            return res.status(err.statusCode || err.status).json({
+                message: err.message
+            });
+        }
+
+        if (resultList.total <= 0 || !resultList.data || resultList.data.length <= 0) {
+            return res.status(404).json({ message: 'Not found.' });
+        }
+
+        return res.json(resultList.data[0]);
     });
 };
 
@@ -59,6 +134,15 @@ function validateInputData(userInfo, callback) {
     callback(null);
 }
 
+function validateRefreshInputData(inputData, callback) {
+    debug('validateRefreshInputData()');
+    if (!inputData.refresh_token)
+        return callback(buildError('refresh_token is mandatory.'));
+    if (!inputData.client_id)
+        return callback(buildError('client_id is mandatory.'));
+    callback(null);
+}
+
 function buildError(message, statusCode) {
     debug('buildError(): ' + message + ', status code: ' + statusCode);
     const err = new Error();
@@ -70,8 +154,8 @@ function buildError(message, statusCode) {
 }
 
 
-function registerOAuthUser(app, inputData, callback) {
-    debug('registerOAuthUser()');
+function getImplicitToken(app, inputData, callback) {
+    debug('getImplicitToken()');
     // We'll add info to this thing along the way; this is how it will look:
     // {
     //   inputData: {
@@ -119,9 +203,9 @@ function registerOAuthUser(app, inputData, callback) {
         callback => getProvisionKey(app, oauthInfo, callback),
         callback => lookupConsumer(app, oauthInfo, callback),
         callback => lookupApi(app, oauthInfo, callback),
-        callback => authorizeConsumer(app, oauthInfo, callback)
+        callback => authorizeConsumerImplicitGrant(app, oauthInfo, callback)
     ], function (err, results) {
-        debug('registerOAuthUser async series returned.');
+        debug('getImplicitToken async series returned.');
         if (err) {
             debug('but failed.');
             console.error(err);
@@ -132,6 +216,143 @@ function registerOAuthUser(app, inputData, callback) {
         // Oh, wow, that worked.
         callback(null, oauthInfo.redirectUri);
     });
+}
+
+function getPasswordToken(app, inputData, callback) {
+    debug('getPasswordToken()');
+    // We'll add info to this thing along the way; this is how it will look:
+    // {
+    //   inputData: {
+    //     authenticated_userid: (user custom ID, e.g. from 3rd party DB),
+    //     api_id: (API ID)
+    //     client_id: (The app's client ID, from subscription)
+    //     scope: [ list of wanted scopes ] (optional, depending on API definition)
+    //   }
+    //   provisionKey: ...
+    //   subsInfo: {
+    //     application: (app ID)
+    //     api: (api ID)
+    //     auth: 'oauth2-implicit',
+    //     plan: (plan ID)
+    //     clientId: (client ID)
+    //     clientSecret: (client secret)
+    //     ...
+    //   },
+    //   appInfo: {
+    //     id: (app ID),
+    //     name: (Application friendly name),
+    //     redirectUri: (App's redirect URI)   
+    //   },
+    //   consumer: {
+    //     id: (Kong consumer ID),
+    //     username: (app id)$(api_id)
+    //     custom_id: (subscription id)
+    //   },
+    //   apiInfo: {
+    //     strip_request_path: true,
+    //     preserve_host: false,
+    //     name: "mobile",
+    //     request_path : "/mobile/v1",
+    //     id: "7baec4f7-131d-44e9-a746-312352cedab1",
+    //     upstream_url: "https://upstream.url/api/v1",
+    //     created_at: 1477320419000
+    //   }
+    //   accessToken: {
+    //     access_token: "w493479837498374987984387498",
+    //     expires_in: 3600,
+    //     refresh_token: "843987409wr987498t743o56873456983475698",
+    //     token_type: "bearer"
+    //   }        
+    // }
+    const oauthInfo = { inputData: inputData };
+
+    async.series([
+        callback => lookupSubscription(app, oauthInfo, callback),
+        //callback => lookupApplication(app, oauthInfo, callback),
+        callback => getProvisionKey(app, oauthInfo, callback),
+        callback => lookupConsumer(app, oauthInfo, callback),
+        callback => lookupApi(app, oauthInfo, callback),
+        callback => authorizeConsumerPasswordGrant(app, oauthInfo, callback)
+    ], function (err, results) {
+        debug('getPasswordToken async series returned.');
+        if (err) {
+            debug('but failed.');
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+
+        // Oh, wow, that worked.
+        callback(null, oauthInfo.accessToken);
+    });    
+}
+
+function getRefreshedToken(app, inputData, callback) {
+    debug('getRefreshedToken()');
+    // We'll add info to this thing along the way; this is how it will look:
+    // {
+    //   inputData: {
+    //     authenticated_userid: (user custom ID, e.g. from 3rd party DB),
+    //     api_id: (API ID)
+    //     client_id: (The app's client ID, from subscription)
+    //     scope: [ list of wanted scopes ] (optional, depending on API definition)
+    //   }
+    //   subsInfo: {
+    //     application: (app ID)
+    //     api: (api ID)
+    //     auth: 'oauth2-implicit',
+    //     plan: (plan ID)
+    //     clientId: (client ID)
+    //     clientSecret: (client secret)
+    //     ...
+    //   },
+    //   appInfo: {
+    //     id: (app ID),
+    //     name: (Application friendly name),
+    //     redirectUri: (App's redirect URI)   
+    //   },
+    //   consumer: {
+    //     id: (Kong consumer ID),
+    //     username: (app id)$(api_id)
+    //     custom_id: (subscription id)
+    //   },
+    //   apiInfo: {
+    //     strip_request_path: true,
+    //     preserve_host: false,
+    //     name: "mobile",
+    //     request_path : "/mobile/v1",
+    //     id: "7baec4f7-131d-44e9-a746-312352cedab1",
+    //     upstream_url: "https://upstream.url/api/v1",
+    //     created_at: 1477320419000
+    //   }
+    //   accessToken: {
+    //     access_token: "w493479837498374987984387498",
+    //     expires_in: 3600,
+    //     refresh_token: "843987409wr987498t743o56873456983475698",
+    //     token_type: "bearer"
+    //   }        
+    // }
+    const oauthInfo = { inputData: inputData };
+
+    async.series([
+        callback => lookupSubscription(app, oauthInfo, callback),
+        //callback => lookupApplication(app, oauthInfo, callback),
+        callback => getProvisionKey(app, oauthInfo, callback),
+        callback => lookupConsumer(app, oauthInfo, callback),
+        callback => lookupApi(app, oauthInfo, callback),
+        callback => authorizeConsumerRefreshToken(app, oauthInfo, callback)
+    ], function (err, results) {
+        debug('getRefreshedToken async series returned.');
+        if (err) {
+            debug('but failed.');
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+
+        // Oh, wow, that worked.
+        callback(null, oauthInfo.accessToken);
+    });    
 }
 
 function lookupSubscription(app, oauthInfo, callback) {
@@ -181,11 +402,12 @@ function getProvisionKey(app, oauthInfo, callback) {
         if (body.data.length <= 0)
             return callback(buildError('For API ' + apiId + ', no oauth2 plugin seems to be configured.'));
         const oauth2Plugin = body.data[0];
-        if (!oauth2Plugin.config.enable_implicit_grant)
-            return callback(buildError('API ' + apiId + ' is not configured for the OAuth2 implicit grant.'));
+//        if (!oauth2Plugin.config.enable_implicit_grant)
+//            return callback(buildError('API ' + apiId + ' is not configured for the OAuth2 implicit grant.'));
         if (!oauth2Plugin.config.provision_key)
             return callback(buildError('API ' + apiId + ' does not have a valid provision_key.'));
         // Looks good, remember dat thing
+        oauthInfo.oauth2Config = oauth2Plugin.config;
         oauthInfo.provisionKey = oauth2Plugin.config.provision_key;
         callback(null, oauthInfo);
     });
@@ -247,13 +469,13 @@ function buildAuthorizeUrl(apiUrl, requestPath, additionalPath) {
     return hostUrl + reqPath + addPath;
 }
 
-function authorizeConsumer(app, oauthInfo, callback) {
-    debug('authorizeConsumer()');
-    // Now we need to assemble the API host for this system. It's in globals.
-    let apiUrl = app.kongGlobals.network.schema + '://' +
-        app.kongGlobals.network.apiHost; // e.g., https://api.mycompany.com, or http://local.ip:8000
-    if (!apiUrl.endsWith('/'))
-        apiUrl = apiUrl + '/';
+function authorizeConsumerImplicitGrant(app, oauthInfo, callback) {
+    debug('authorizeConsumerImplicitGrant()');
+    // Check that the API is configured for implicit grant
+    if (!oauthInfo.oauth2Config ||
+        !oauthInfo.oauth2Config.enable_implicit_grant)
+        return callback(buildError('The API ' + oauthInfo.inputData.api_id + ' is not configured for the OAuth2 implicit grant.'), 400);
+    let apiUrl = wicked.getExternalApiUrl();
     const authorizeUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.request_path, '/oauth2/authorize');
     debug('authorizeUrl: ' + authorizeUrl);
 
@@ -311,6 +533,132 @@ function authorizeConsumer(app, oauthInfo, callback) {
         }
         const jsonBody = utils.getJson(body);
         oauthInfo.redirectUri = jsonBody.redirect_uri;
+        return callback(null, oauthInfo);
+    });
+}
+
+function authorizeConsumerPasswordGrant(app, oauthInfo, callback) {
+    debug('authorizeConsumerPasswordGrant()');
+    // Check that the API is configured for password grant
+    if (!oauthInfo.oauth2Config ||
+        !oauthInfo.oauth2Config.enable_password_grant)
+        return callback(buildError('The API ' + oauthInfo.inputData.api_id + ' is not configured for the OAuth2 resource owner password grant.'), 400);
+    let apiUrl = wicked.getExternalApiUrl();
+    const tokenUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.request_path, '/oauth2/token');
+    debug('tokenUrl: ' + tokenUrl);
+
+    let headers = null;
+    let agent = null;
+
+    // Workaround for local connections and testing
+    if ('http' === app.kongGlobals.network.schema) {
+        headers = { 'X-Forwarded-Proto': 'https' };
+    } else if ('https' === app.kongGlobals.network.schema) {
+        // Make sure we accept self signed certs
+        agent = sslAgent;
+    }
+
+    let scope = null;
+    if (oauthInfo.inputData.scope) {
+        let s = oauthInfo.inputData.scope;
+        if (typeof(s) === 'string')
+            scope = s;
+        else if (Array.isArray(s))
+            scope = s.join(' ');
+        else // else: what?
+            debug('unknown type of scope input parameter: ' + typeof(s));
+    }
+    debug('requested scope: ' + scope);
+
+    const oauthBody = {
+        grant_type: 'password',
+        provision_key: oauthInfo.provisionKey,
+        client_id: oauthInfo.subsInfo.clientId,
+        client_secret: oauthInfo.subsInfo.clientSecret,
+        authenticated_userid: oauthInfo.inputData.authenticated_userid
+    };
+    if (scope)
+        oauthBody.scope = scope;
+    debug(oauthBody);
+
+    // Jetzt kommt der spannende Moment, wo der Frosch ins Wasser rennt
+    request.post({
+        url: tokenUrl,
+        headers: headers,
+        agent: agent,
+        json: true,
+        body: oauthBody
+    }, function (err, res, body) {
+        if (err) {
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+        if (res.statusCode > 299) {
+            debug('Kong did not create an access token, response body:');
+            debug(body);
+            return callback(buildError('Authorize user with password grant in Kong failed: ' + utils.getText(body), res.statusCode));
+        }
+        const jsonBody = utils.getJson(body);
+        debug('Created access token via password grant:');
+        debug(jsonBody);
+        oauthInfo.accessToken = jsonBody;
+        return callback(null, oauthInfo);
+    });
+}
+
+function authorizeConsumerRefreshToken(app, oauthInfo, callback) {
+    debug('authorizeConsumerPasswordGrant()');
+    // Check that the API is configured for password grant
+    if (!oauthInfo.oauth2Config ||
+        (!oauthInfo.oauth2Config.enable_password_grant && !oauthInfo.oauth2Config.enable_authorization_code)) {
+        debug(oauthInfo.oauth2Config);
+        return callback(buildError('The API ' + oauthInfo.inputData.api_id + ' is not configured for granting refresh token requests.'), 400);
+    }
+    let apiUrl = wicked.getExternalApiUrl();
+    const tokenUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.request_path, '/oauth2/token');
+    debug('tokenUrl: ' + tokenUrl);
+
+    let headers = null;
+    let agent = null;
+
+    // Workaround for local connections and testing
+    if ('http' === app.kongGlobals.network.schema) {
+        headers = { 'X-Forwarded-Proto': 'https' };
+    } else if ('https' === app.kongGlobals.network.schema) {
+        // Make sure we accept self signed certs
+        agent = sslAgent;
+    }
+
+    const oauthBody = {
+        grant_type: 'refresh_token',
+        client_id: oauthInfo.subsInfo.clientId,
+        client_secret: oauthInfo.subsInfo.clientSecret,
+        refresh_token: oauthInfo.inputData.refresh_token
+    };
+
+    // Jetzt kommt der spannende Moment, wo der Frosch ins Wasser rennt
+    request.post({
+        url: tokenUrl,
+        headers: headers,
+        agent: agent,
+        json: true,
+        body: oauthBody
+    }, function (err, res, body) {
+        if (err) {
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+        if (res.statusCode > 299) {
+            debug('Kong did not create an access token, response body:');
+            debug(body);
+            return callback(buildError('Refresh token in Kong failed: ' + utils.getText(body), res.statusCode));
+        }
+        const jsonBody = utils.getJson(body);
+        debug('Created access token via refresh token:');
+        debug(jsonBody);
+        oauthInfo.accessToken = jsonBody;
         return callback(null, oauthInfo);
     });
 }

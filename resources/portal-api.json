@@ -2,6 +2,9 @@
   "name": "Portal API",
   "id": "portal-api-internal",
   "auth": "oauth2",
+  "settings": {
+    "enable_client_credentials": true
+  },
   "config": {
     "api": {
       "upstream_url": "(filled dynamically)/",

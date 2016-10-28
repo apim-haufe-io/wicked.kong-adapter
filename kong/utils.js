@@ -32,6 +32,10 @@ utils.getText = function(ob) {
     return JSON.stringify(ob, null, 2);
 };
 
+utils.clone = function (ob) {
+    return JSON.parse(JSON.stringify(ob));
+};
+
 utils.getIndexBy = function(anArray, predicate) {
     for (var i=0; i<anArray.length; ++i) {
         if (predicate(anArray[i]))

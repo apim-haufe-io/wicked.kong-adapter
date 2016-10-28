@@ -95,6 +95,7 @@ function dispatchWebhookAction(app, webhookData, onlyDelete, callback) {
     debug('dispatchWebhookAction()');
     const action = webhookData.action;
     const entity = webhookData.entity;
+    debug('action = ' + action + ', entity = ' + entity);
     let syncAction = null;
     if (entity === 'application' && (action === 'add' || action === 'update') && !onlyDelete)
         syncAction = callback => syncAppConsumers(app, webhookData.data.applicationId, callback);

@@ -150,7 +150,7 @@ sync.deleteAppConsumers = function (app, appId, subscriptionList, callback) {
  subsInfo: {
      application: <...>,
      api: <...>,
-     auth: <auth method> (one of key-auth, oauth2, oauth2-implicit)
+     auth: <auth method> (one of key-auth, oauth2)
      plan: <...>, // optional
      userId: <...> // optional
  }

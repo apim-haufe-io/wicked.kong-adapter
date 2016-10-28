@@ -674,8 +674,7 @@ function deleteConsumerWithId(app, consumerId, callback) {
     utils.kongDelete(app, 'consumers/' + consumerId, callback);
 }
 
-// Use with care ;-) This will not only wipe the consumers which are created
-// from the portal API, but also any oauth2-implicit type consumers (plain: all).
+// Use with care ;-) This will wipe ALL consumers from the Kong database.
 kong.wipeAllConsumers = function (app, callback) {
     debug('wipeAllConsumers()');
     wipeConsumerBatch(app, 'consumers?size=' + KONG_BATCH_SIZE, callback);

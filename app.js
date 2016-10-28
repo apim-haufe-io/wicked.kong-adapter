@@ -1,3 +1,5 @@
+'use strict';
+
 var express = require('express');
 var path = require('path');
 var logger = require('morgan');
@@ -27,6 +29,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
 app.post('/', function (req, res, next) {
+    debug('/ (main processing loop)');
     if (!app.initialized)
         return res.status(503).json({ message: 'Not yet initialized.' });
     if (req.app.processingWebhooks) {
@@ -51,7 +54,8 @@ app.post('/', function (req, res, next) {
 
 app._startupSeconds = utils.getUtc();
 app.get('/ping', function (req, res, next) {
-    var health = {
+    debug('/ping');
+    const health = {
         name: 'kong-adapter',
         message: 'Up and running',
         uptime: (utils.getUtc() - app._startupSeconds),
@@ -63,7 +67,7 @@ app.get('/ping', function (req, res, next) {
         buildDate: utils.getBuildDate()
     };
     if (!app.initialized) {
-        var msg = 'Initializing - Waiting for API and Kong';
+        let msg = 'Initializing - Waiting for API and Kong';
         if (app.apiAvailable && !app.kongAvailable)
             msg = 'Initializing - Waiting for Kong';
         else if (!app.apiAvailable && app.kongAvailable)
@@ -98,8 +102,7 @@ app.post('/kill', function (req, res, next) {
  implicit grant. This requires a payload which looks like this:
 
  {
-     "email":"hello@company.com",
-     "custom_id":"1234567",
+     "authenticated_userid":"your-user-id"
      "api_id":"some_api",
      "client_id":"ab7364bd9ef0992838dfab9384",
      "scope": ["scope1", "scope2"] // This is optional, depending on the API def.
@@ -114,36 +117,73 @@ app.post('/kill', function (req, res, next) {
  an access token is returned in form of a redirect_uri with a
  fragment.
  */
-app.post('/oauth2/register', function (req, res, next) {
-    debug('/oauth2/register');
-    oauth2.registerUser(req.app, res, req.body);
+app.post('/oauth2/token/implicit', function (req, res, next) {
+    debug('/oauth2/token/implicit');
+    oauth2.getImplicitToken(req.app, res, req.body);
+});
+
+/*
+ End point for authorizing end users for use with the oauth2
+ implicit grant. This requires a payload which looks like this:
+
+ {
+     "authenticated_userid":"your-user-id"
+     "api_id":"some_api",
+     "client_id":"ab7364bd9ef0992838dfab9384",
+     "scope": ["scope1", "scope2"] // This is optional, depending on the API def.
+     "headers": [
+         {"X-SomeHeader": "some-value"}
+     ]
+ }
+
+ If there is registered application for the given client_id,
+ and there is a subscription for the given API for that application,
+ the user is created, the OAuth2 app is registered with it, and
+ an access token is returned in form of a JSON return object:
+
+ {
+     "access_token":"37498w7498weiru3487568376593485",
+     "token_type":"bearer",
+     "expires_in":3600,
+     "refresh_token":"4938409238450938p59g49587gj4utgeiou6tioge56hoig76"
+ }
+ */
+app.post('/oauth2/token/password', function (req, res, next) {
+    debug('/oauth2/token/password');
+    oauth2.getPasswordToken(req.app, res, req.body);
+});
+
+app.post('/oauth2/token/refresh', function (req, res, next) {
+    debug('/oauth2/token/refresh');
+    oauth2.getRefreshedToken(req.app, res, req.body);
+});
+
+app.get('/oauth2/token', function (req, res, next) {
+    debug('/oauth2/token');
+    let access_token = null;
+    let refresh_token = null;
+    if (req.query.access_token)
+        access_token = req.query.access_token;
+    else if (req.query.refresh_token)
+        refresh_token = req.query.refresh_token;
+    oauth2.getTokenData(req.app, res, access_token, refresh_token);
 });
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {
-    var err = new Error('Not Found');
+    const err = new Error('Not Found');
     err.status = 404;
     next(err);
 });
 
 // error handlers
 
-// development error handler
-// will print stacktrace
-if (app.get('env') === 'development') {
-    app.use(function (err, req, res, next) {
-        res.status(err.status || 500);
-        res.jsonp({
-            message: err.message,
-            error: err
-        });
-    });
-}
-
 // production error handler
 // no stacktraces leaked to user
 app.use(function (err, req, res, next) {
     res.status(err.status || 500);
+    console.error(err);
+    console.error(err.stack);
     res.jsonp({
         message: err.message,
         error: {}
