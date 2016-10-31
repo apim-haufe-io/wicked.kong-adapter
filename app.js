@@ -106,9 +106,6 @@ app.post('/kill', function (req, res, next) {
      "api_id":"some_api",
      "client_id":"ab7364bd9ef0992838dfab9384",
      "scope": ["scope1", "scope2"] // This is optional, depending on the API def.
-     "headers": [
-         {"X-SomeHeader": "some-value"}
-     ]
  }
 
  If there is registered application for the given client_id,
@@ -131,9 +128,6 @@ app.post('/oauth2/token/implicit', function (req, res, next) {
      "api_id":"some_api",
      "client_id":"ab7364bd9ef0992838dfab9384",
      "scope": ["scope1", "scope2"] // This is optional, depending on the API def.
-     "headers": [
-         {"X-SomeHeader": "some-value"}
-     ]
  }
 
  If there is registered application for the given client_id,
@@ -153,11 +147,50 @@ app.post('/oauth2/token/password', function (req, res, next) {
     oauth2.getPasswordToken(req.app, res, req.body);
 });
 
+/*
+ End point for refreshing an access token using a refresh token.
+ This requires a payload which looks like this:
+
+ {
+     "refresh_token":"or798347598374593745ikrtk",
+     "client_id":"ab7364bd9ef0992838dfab9384",
+ }
+
+ The Kong Adapter will check that the given client still has a 
+ valid subscription to the API, and if successful, issue a new
+ pair of access token and refresh token:
+
+ {
+     "access_token":"37498w7498weiru3487568376593485",
+     "token_type":"bearer",
+     "expires_in":3600,
+     "refresh_token":"4938409238450938p59g49587gj4utgeiou6tioge56hoig76"
+ }
+*/
 app.post('/oauth2/token/refresh', function (req, res, next) {
     debug('/oauth2/token/refresh');
     oauth2.getRefreshedToken(req.app, res, req.body);
 });
 
+/*
+ Retrieve information on an access token. Use this in order to
+ find out which authenticated user is tied to a specific access token
+ or refresh token. This can be used to do additional authorization
+ based on the actually authenticated user before e.g. allowing a refresh
+ token request to be granted.
+
+ GET /oauth2/token?access_token=<....>
+ GET /oauth2/token?refresh_token=<....>
+
+ Returns, if successful, the access token information:
+
+ {
+     "access_token":"er9e8ut49jtoirtjoiruoti",
+     "refresh_token":"7594598475g89j567gj5o6go5675ojh65",
+     "authenticated_userid":"8495874985ogituojgtulor5uh6o5",
+     "authenticated_scopes":["scope1", "scope2"]
+ }
+*/
 app.get('/oauth2/token', function (req, res, next) {
     debug('/oauth2/token');
     let access_token = null;
