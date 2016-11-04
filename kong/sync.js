@@ -176,7 +176,7 @@ function syncConsumers(app, portalConsumers, done) {
         if (err)
             return done(err);
         const kongConsumers = [];
-        for (let i=0; i<resultConsumers.length; ++i) {
+        for (let i = 0; i < resultConsumers.length; ++i) {
             if (resultConsumers[i])
                 kongConsumers.push(resultConsumers[i]);
         }
@@ -399,7 +399,7 @@ function assembleConsumerApiPluginsTodoLists(portalConsumer, kongConsumer) {
             continue;
         }
 
-        if (kongApiPlugin && 
+        if (kongApiPlugin &&
             !utils.matchObjects(portalApiPlugin, kongApiPlugin)) {
             patchList.push({
                 portalConsumer: portalConsumer,

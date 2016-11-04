@@ -608,8 +608,10 @@ kong.updateKongConsumers = function (app, sync, updateList, done) {
     // - kongConsumer
 
     async.eachSeries(updateList, function (updateItem, callback) {
-        // Actually, the "consumer" bit cannot differ, so we just have to check out the plugins
         async.series([
+            function (asyncCallback) {
+                updateKongConsumer(app, updateItem.portalConsumer, updateItem.kongConsumer, asyncCallback);
+            },
             function (asyncCallback) {
                 updateKongConsumerPlugins(app, updateItem.portalConsumer, updateItem.kongConsumer, asyncCallback);
             },
@@ -628,6 +630,18 @@ kong.updateKongConsumers = function (app, sync, updateList, done) {
         done(null);
     });
 };
+
+function updateKongConsumer(app, portalConsumer, kongConsumer, callback) {
+    // The only thing which may differ here is the custom_id
+    if (portalConsumer.consumer.custom_id === kongConsumer.consumer.custom_id) {
+        debug('Custom ID for consumer username ' + portalConsumer.consumer.username + ' matches: ' + portalConsumer.consumer.custom_id);
+        return callback(null); // Nothing to do.
+    }
+    debug('Updating Kong Consumer ' + kongConsumer.consumer.id + ' (username ' + kongConsumer.consumer.username + ') with new custom_id: ' + portalConsumer.consumer.custom_id);
+    utils.kongPatch(app, 'consumers/' + kongConsumer.consumer.id, {
+        custom_id: portalConsumer.consumer.custom_id
+    }, callback);
+}
 
 kong.deleteConsumerWithUsername = function (app, username, callback) {
     debug('deleteConsumer() - username: ' + username);
