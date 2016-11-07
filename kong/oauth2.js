@@ -162,6 +162,7 @@ function getImplicitToken(app, inputData, callback) {
     //     authenticated_userid: (user custom ID, e.g. from 3rd party DB),
     //     api_id: (API ID)
     //     client_id: (The app's client ID, from subscription)
+    //     auth_server: (optional, which auth server is calling? Used to check that API is configured to use this auth server)
     //     scope: [ list of wanted scopes ] (optional, depending on API definition)
     //   }
     //   provisionKey: ...
@@ -226,6 +227,7 @@ function getPasswordToken(app, inputData, callback) {
     //     authenticated_userid: (user custom ID, e.g. from 3rd party DB),
     //     api_id: (API ID)
     //     client_id: (The app's client ID, from subscription)
+    //     auth_server: (optional, which auth server is calling? Used to check that API is configured to use this auth server)
     //     scope: [ list of wanted scopes ] (optional, depending on API definition)
     //   }
     //   provisionKey: ...
@@ -295,6 +297,7 @@ function getRefreshedToken(app, inputData, callback) {
     //     refresh_token: (the refresh token)
     //     api_id: (API ID)
     //     client_id: (The app's client ID, from subscription)
+    //     auth_server: (optional, which auth server is calling? Used to check that API is configured to use this auth server)
     //   }
     //   subsInfo: {
     //     application: (app ID)
@@ -438,15 +441,43 @@ function lookupConsumer(app, oauthInfo, callback) {
 
 function lookupApi(app, oauthInfo, callback) {
     const apiId = oauthInfo.subsInfo.api;
-    debug('lookupApi() for API + ' + apiId);
-    utils.kongGet(app, 'apis/' + apiId, function (err, apiInfo) {
+    debug('lookupApi() for API ' + apiId);
+    async.parallel({
+        kongApi: callback => utils.kongGet(app, 'apis/' + apiId, callback),
+        portalApi: callback => utils.apiGet(app, 'apis/' + apiId, callback)
+    }, function (err, results) {
         if (err) {
             console.error(err);
             console.error(err.stack);
             return callback(err);
         }
+        const apiInfo = results.kongApi;
+        const portalApiInfo = results.portalApi;
+
         if (!apiInfo.request_path)
             return callback(buildError('API ' + apiId + ' does not have a valid request_path setting.'));
+
+        // Check auth_server?
+        if (oauthInfo.inputData.auth_server) {
+            debug('Checking auth server ' + oauthInfo.inputData.auth_server);
+            debug(portalApiInfo);
+            if (!portalApiInfo.authServers || portalApiInfo.authServers.length <= 0) {
+                debug('No auth servers configured for API ' + apiId);
+                return callback(buildError('API ' + apiId + ' does not have an authServers property, cannot verify Auth Server validity.'));
+            }
+            let foundAuthServer = false;
+            for (let i = 0; i < portalApiInfo.authServers.length; ++i) {
+                if(portalApiInfo.authServers[i] === oauthInfo.inputData.auth_server) {
+                    foundAuthServer = true;
+                    break;
+                }
+            }
+            if (!foundAuthServer) {
+                debug('Auth Server not found in authServers list.');
+                return callback(buildError('API ' + apiId + ' is not configured for use with Authorization Server ' + oauthInfo.inputData.auth_server));
+            }
+            debug('Auth Server ' + oauthInfo.inputData.auth_server + ' is okay for API ' + apiId);
+        }
         oauthInfo.apiInfo = apiInfo;
         return callback(null, oauthInfo);
     });
