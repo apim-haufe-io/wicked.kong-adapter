@@ -121,6 +121,28 @@ app.post('/oauth2/token/implicit', function (req, res, next) {
 
 /*
  End point for authorizing end users for use with the oauth2
+ authorization code grant. This requires a payload which looks like this:
+
+ {
+     "authenticated_userid":"your-user-id"
+     "api_id":"some_api",
+     "client_id":"ab7364bd9ef0992838dfab9384",
+     "scope": ["scope1", "scope2"] // This is optional, depending on the API def.
+ }
+
+ If there is registered application for the given client_id,
+ and there is a subscription for the given API for that application,
+ the user is created, the OAuth2 app is registered with it, and
+ an authorization code is returned in form of a redirect_uri with a
+ query parameter https://good.uri?code=62bdfa8e29f29dfe82
+ */
+app.post('/oauth2/token/code', function (req, res, next) {
+    debug('/oauth2/token/code');
+    oauth2.getAuthorizationCode(req.app, res, req.body);
+});
+
+/*
+ End point for authorizing end users for use with the oauth2
  implicit grant. This requires a payload which looks like this:
 
  {

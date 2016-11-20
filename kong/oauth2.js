@@ -91,6 +91,31 @@ oauth2.getRefreshedToken = function (app, res, inputData) {
     });
 };
 
+oauth2.getAuthorizationCode = function (app, res, inputData) {
+    debug('getAuthorizationCode()');
+    debug(inputData);
+    async.series({
+        validate: function (callback) { validateInputData(inputData, callback); },
+        redirectUri: function (callback) { getAuthorizationCode(app, inputData, callback); }
+    }, function (err, results) {
+        if (err) {
+            console.error(err.message);
+            console.error(err.stack);
+            if (!err.statusCode && !err.status)
+                err.statusCode = 500;
+            return res.status(err.statusCode || err.status).json({
+                message: err.message
+            });
+        }
+
+        const redirectUri = results.redirectUri;
+
+        res.json({
+            redirect_uri: redirectUri
+        });
+    });
+}
+
 oauth2.getTokenData = function (app, res, accessToken, refreshToken) {
     debug('getTokenData(), access_token = ' + accessToken + ', refresh_token = ' + refreshToken);
     let tokenUrl = 'oauth2_tokens?';
@@ -205,6 +230,30 @@ function getImplicitToken(app, inputData, callback) {
         callback => lookupConsumer(app, oauthInfo, callback),
         callback => lookupApi(app, oauthInfo, callback),
         callback => authorizeConsumerImplicitGrant(app, oauthInfo, callback)
+    ], function (err, results) {
+        debug('getImplicitToken async series returned.');
+        if (err) {
+            debug('but failed.');
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+
+        // Oh, wow, that worked.
+        callback(null, oauthInfo.redirectUri);
+    });
+}
+
+function getAuthorizationCode(app, inputData, callback) {
+    const oauthInfo = { inputData: inputData };
+
+    async.series([
+        callback => lookupSubscription(app, oauthInfo, callback),
+        //callback => lookupApplication(app, oauthInfo, callback),
+        callback => getProvisionKey(app, oauthInfo, callback),
+        callback => lookupConsumer(app, oauthInfo, callback),
+        callback => lookupApi(app, oauthInfo, callback),
+        callback => authorizeConsumerAuthCode(app, oauthInfo, callback)
     ], function (err, results) {
         debug('getImplicitToken async series returned.');
         if (err) {
@@ -498,12 +547,7 @@ function buildAuthorizeUrl(apiUrl, requestPath, additionalPath) {
     return hostUrl + reqPath + addPath;
 }
 
-function authorizeConsumerImplicitGrant(app, oauthInfo, callback) {
-    debug('authorizeConsumerImplicitGrant()');
-    // Check that the API is configured for implicit grant
-    if (!oauthInfo.oauth2Config ||
-        !oauthInfo.oauth2Config.enable_implicit_grant)
-        return callback(buildError('The API ' + oauthInfo.inputData.api_id + ' is not configured for the OAuth2 implicit grant.'), 400);
+function getAuthorizeRequest(app, responseType, oauthInfo) {
     let apiUrl = wicked.getExternalApiUrl();
     const authorizeUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.request_path, '/oauth2/authorize');
     debug('authorizeUrl: ' + authorizeUrl);
@@ -532,7 +576,7 @@ function authorizeConsumerImplicitGrant(app, oauthInfo, callback) {
     debug('requested scope: ' + scope);
 
     const oauthBody = {
-        response_type: 'token',
+        response_type: responseType,
         provision_key: oauthInfo.provisionKey,
         client_id: oauthInfo.subsInfo.clientId,
         redirect_uri: oauthInfo.appInfo.redirectUri,
@@ -542,14 +586,30 @@ function authorizeConsumerImplicitGrant(app, oauthInfo, callback) {
         oauthBody.scope = scope;
     debug(oauthBody);
 
-    // Jetzt kommt der spannende Moment, wo der Frosch ins Wasser rennt
-    request.post({
+    const requestParameters = {
         url: authorizeUrl,
         headers: headers,
         agent: agent,
         json: true,
         body: oauthBody
-    }, function (err, res, body) {
+    };
+
+    return requestParameters;
+}
+
+function authorizeConsumerImplicitGrant(app, oauthInfo, callback) {
+    debug('authorizeConsumerImplicitGrant()');
+    // Check that the API is configured for implicit grant
+    if (!oauthInfo.oauth2Config ||
+        !oauthInfo.oauth2Config.enable_implicit_grant)
+        return callback(buildError('The API ' + oauthInfo.inputData.api_id + ' is not configured for the OAuth2 implicit grant.'), 400);
+
+    const requestParameters = getAuthorizeRequest(app, 'token', oauthInfo);
+
+    // Jetzt kommt der spannende Moment, wo der Frosch ins Wasser rennt
+    request.post(requestParameters, function (err, res, body) {
+        debug('Kong authorize response:');
+        debug(body);
         if (err) {
             console.error(err);
             console.error(err.stack);
@@ -560,6 +620,37 @@ function authorizeConsumerImplicitGrant(app, oauthInfo, callback) {
             debug(body);
             return callback(buildError('Authorize user with Kong failed: ' + utils.getText(body), res.statusCode));
         }
+        debug('Kong authorize response:');
+        debug(body);
+        const jsonBody = utils.getJson(body);
+        oauthInfo.redirectUri = jsonBody.redirect_uri;
+        return callback(null, oauthInfo);
+    });
+}
+
+function authorizeConsumerAuthCode(app, oauthInfo, callback) {
+    debug('authorizeConsumerAuthCode()');
+    // Check that the API is configured for implicit grant
+    if (!oauthInfo.oauth2Config ||
+        !oauthInfo.oauth2Config.enable_authorization_code)
+        return callback(buildError('The API ' + oauthInfo.inputData.api_id + ' is not configured for the OAuth2 Authorization Code grant.'), 400);
+
+    const requestParameters = getAuthorizeRequest(app, 'code', oauthInfo);
+
+    // Jetzt kommt der spannende Moment, wo der Frosch ins Wasser rennt
+    request.post(requestParameters, function (err, res, body) {
+        if (err) {
+            console.error(err);
+            console.error(err.stack);
+            return callback(err);
+        }
+        if (res.statusCode > 299) {
+            debug('Kong did not create an access token, response body:');
+            debug(body);
+            return callback(buildError('Authorize user with Kong failed: ' + utils.getText(body), res.statusCode));
+        }
+        debug('Kong authorize response:');
+        debug(body);
         const jsonBody = utils.getJson(body);
         oauthInfo.redirectUri = jsonBody.redirect_uri;
         return callback(null, oauthInfo);
