@@ -13,6 +13,7 @@ var async = require('async');
 var wicked = require('wicked-sdk');
 
 var kong = require('../kong/main');
+var utils = require('../kong/utils');
 
 /**
  * Get port from environment and store in Express.
@@ -34,8 +35,13 @@ debug('Waiting for API to be available.');
 app.apiAvailable = false;
 app.kongAvailable = false;
 
+const wickedOptions = {
+    userAgentName: 'wicked.portal-kong-adapter',
+    userAgentVersion: utils.getVersion()
+};
+
 async.series([
-    callback => wicked.initialize(callback),
+    callback => wicked.initialize(wickedOptions, callback),
     callback => wicked.initMachineUser('kong-adapter', callback),
     callback => wicked.awaitUrl(wicked.getInternalKongAdminUrl(), callback)
 ], function (err) {

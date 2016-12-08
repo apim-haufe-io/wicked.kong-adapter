@@ -77,8 +77,8 @@ app.get('/ping', function (req, res, next) {
         res.status(503);
     } else if (app.lastErr) {
         health.healthy = 0;
-        health.message = lastErr.message;
-        health.error = JSON.stringify(lastErr, null, 2);
+        health.message = app.lastErr.message;
+        health.error = JSON.stringify(app.lastErr, null, 2);
         res.status(500);
     }
     res.json(health);
