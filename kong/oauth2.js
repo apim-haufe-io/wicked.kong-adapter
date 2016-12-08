@@ -114,7 +114,7 @@ oauth2.getAuthorizationCode = function (app, res, inputData) {
             redirect_uri: redirectUri
         });
     });
-}
+};
 
 oauth2.getTokenData = function (app, res, accessToken, refreshToken) {
     debug('getTokenData(), access_token = ' + accessToken + ', refresh_token = ' + refreshToken);
