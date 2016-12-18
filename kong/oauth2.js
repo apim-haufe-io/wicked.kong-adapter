@@ -7,7 +7,6 @@ var request = require('request');
 var wicked = require('wicked-sdk');
 
 var utils = require('./utils');
-var sync = require('./sync');
 var kong = require('./kong');
 
 // We need this to accept self signed and Let's Encrypt certificates
