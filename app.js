@@ -64,7 +64,9 @@ app.get('/ping', function (req, res, next) {
         version: utils.getVersion(),
         gitLastCommit: utils.getGitLastCommit(),
         gitBranch: utils.getGitBranch(),
-        buildDate: utils.getBuildDate()
+        buildDate: utils.getBuildDate(),
+        kongVersion: utils.getExpectedKongVersion(),
+        kongStatus: JSON.stringify(utils.getKongClusterStatus())
     };
     if (!app.initialized) {
         let msg = 'Initializing - Waiting for API and Kong';

@@ -7,7 +7,7 @@ var wicked = require('wicked-sdk');
 var fs = require('fs');
 var path = require('path');
 
-var utils = function() { };
+var utils = function () { };
 
 utils.getUtc = function () {
     return Math.floor((new Date()).getTime() / 1000);
@@ -17,7 +17,7 @@ utils.createRandomId = function () {
     return crypto.randomBytes(20).toString('hex');
 };
 
-utils.getJson = function(ob) {
+utils.getJson = function (ob) {
     if (ob instanceof String || typeof ob === "string") {
         if (ob === "")
             return null;
@@ -26,7 +26,7 @@ utils.getJson = function(ob) {
     return ob;
 };
 
-utils.getText = function(ob) {
+utils.getText = function (ob) {
     if (ob instanceof String || typeof ob === "string")
         return ob;
     return JSON.stringify(ob, null, 2);
@@ -36,8 +36,8 @@ utils.clone = function (ob) {
     return JSON.parse(JSON.stringify(ob));
 };
 
-utils.getIndexBy = function(anArray, predicate) {
-    for (var i=0; i<anArray.length; ++i) {
+utils.getIndexBy = function (anArray, predicate) {
+    for (var i = 0; i < anArray.length; ++i) {
         if (predicate(anArray[i]))
             return i;
     }
@@ -45,7 +45,7 @@ utils.getIndexBy = function(anArray, predicate) {
 };
 
 // Check for left side inclusion in right side, NOT vice versa
-utils.matchObjects = function(apiObject, kongObject) {
+utils.matchObjects = function (apiObject, kongObject) {
     debug('matchObjects()');
     var returnValue = matchObjectsInternal(apiObject, kongObject);
     if (!returnValue) {
@@ -77,7 +77,7 @@ function matchObjectsInternal(apiObject, kongObject) {
     return true;
 }
 
-utils.apiGet = function(app, url, callback) {
+utils.apiGet = function (app, url, callback) {
     debug('apiGet(): ' + url);
     wicked.apiGet(url, callback);
 };
@@ -87,26 +87,48 @@ utils.apiGetAsUser = function (app, url, userId, callback) {
     wicked.apiGet(url, userId, callback);
 };
 
-utils.apiPut = function(app, url, body, callback) {
+utils.apiPut = function (app, url, body, callback) {
     debug('apiPut() ' + url);
     wicked.apiPut(url, body, callback);
 };
 
-utils.apiDelete = function(app, url, callback) {
+utils.apiDelete = function (app, url, callback) {
     debug('apiDelete() ' + url);
     wicked.apiDelete(url, callback);
+};
+
+utils._kongAvailable = true; // Otherwise the first call will not succeed
+utils._kongMessage = null;
+utils._kongClusterStatus = null;
+utils.markKongAvailable = function (kongAvailable, kongMessage, clusterStatus) {
+    utils._kongAvailable = kongAvailable;
+    utils._kongMessage = kongMessage;
+    utils._kongClusterStatus = clusterStatus;
+};
+
+utils.getKongClusterStatus = function () {
+    return utils._kongClusterStatus;
 };
 
 function kongAction(app, method, url, body, expectedStatusCode, callback) {
     //console.log('$$$$$$ kongAction: ' + method + ' ' + url);
     //console.log(body);
     debug('kongAction(), ' + method + ', ' + url);
+
+    // If for some reason, we think Kong is not available, tell the upstream
+    if (!utils._kongAvailable) {
+        const err = new Error('kong admin end point not available: ' + utils._kongMessage);
+        err.status = 500;
+        return callback(err);
+    }
+
+    // Now do our thing
     var kongUrl = app.get('kong_url');
     var methodBody = {
         method: method,
         url: kongUrl + url
     };
-    if (method != 'DELETE' && 
+    if (method != 'DELETE' &&
         method != 'GET') {
         methodBody.json = true;
         methodBody.body = body;
@@ -116,8 +138,8 @@ function kongAction(app, method, url, body, expectedStatusCode, callback) {
         if (process.env.KONG_CURL)
             console.error('curl -X ' + method + ' ' + methodBody.url);
     }
-    
-    request(methodBody, function(err, apiResponse, apiBody) {
+
+    request(methodBody, function (err, apiResponse, apiBody) {
         if (err)
             return callback(err);
         if (expectedStatusCode != apiResponse.statusCode) {
@@ -131,19 +153,19 @@ function kongAction(app, method, url, body, expectedStatusCode, callback) {
     });
 }
 
-utils.kongGet = function(app, url, callback) {
+utils.kongGet = function (app, url, callback) {
     kongAction(app, 'GET', url, null, 200, callback);
 };
 
-utils.kongPost = function(app, url, body, callback) {
+utils.kongPost = function (app, url, body, callback) {
     kongAction(app, 'POST', url, body, 201, callback);
 };
 
-utils.kongDelete = function(app, url, callback) {
+utils.kongDelete = function (app, url, callback) {
     kongAction(app, 'DELETE', url, null, 204, callback);
 };
 
-utils.kongPatch = function(app, url, body, callback) {
+utils.kongPatch = function (app, url, body, callback) {
     kongAction(app, 'PATCH', url, body, 200, callback);
 };
 
@@ -190,23 +212,38 @@ utils.makeUserName = function (appId, apiId) {
     return appId + '$' + apiId;
 };
 
+utils._packageFile = null;
+utils.getPackageJson = function () {
+    if (!utils._packageFile) {
+        // Deliberately do not do any error handling here! package.json MUST exist.
+        const packageFile = path.join(__dirname, '..', 'package.json');
+        utils._packageFile = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
+    }
+    return utils._packageFile;
+};
+
 utils._packageVersion = null;
 utils.getVersion = function () {
     if (!utils._packageVersion) {
-        const packageFile = path.join(__dirname, '..', 'package.json');
-        if (fs.existsSync(packageFile)) {
-            try {
-                const packageInfo = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
-                if (packageInfo.version)
-                    utils._packageVersion = packageInfo.version;
-            } catch (ex) {
-                console.error(ex);
-            }
-        }
-        if (!utils._packageVersion) // something went wrong
-            utils._packageVersion = "0.0.0";
+        const packageInfo = utils.getPackageJson();
+        if (packageInfo.version)
+            utils._packageVersion = packageInfo.version;
     }
+    if (!utils._packageVersion) // something went wrong
+        utils._packageVersion = "0.0.0";
     return utils._packageVersion;
+};
+
+utils._expectedKongVersion = null;
+utils.getExpectedKongVersion = function() {
+    if (!utils._expectedKongVersion) {
+        const packageInfo = utils.getPackageJson();
+        if (packageInfo.config && packageInfo.config.kongversion)
+            utils._expectedKongVersion = packageInfo.config.kongversion;
+    }
+    if (!utils._expectedKongVersion)
+        throw new Error('package.json does not contain config.kongversion!');
+    return utils._expectedKongVersion;
 };
 
 utils._gitLastCommit = null;

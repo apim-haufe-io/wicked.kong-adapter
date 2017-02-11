@@ -14,6 +14,7 @@ var wicked = require('wicked-sdk');
 
 var kong = require('../kong/main');
 var utils = require('../kong/utils');
+var kongMonitor = require('../kong/monitor');
 
 /**
  * Get port from environment and store in Express.
@@ -43,7 +44,8 @@ const wickedOptions = {
 async.series([
     callback => wicked.initialize(wickedOptions, callback),
     callback => wicked.initMachineUser('kong-adapter', callback),
-    callback => wicked.awaitUrl(wicked.getInternalKongAdminUrl(), callback)
+    callback => wicked.awaitUrl(wicked.getInternalKongAdminUrl(), callback),
+    callback => kongMonitor.init(app, callback)
 ], function (err) {
     debug('Kong and API await finished.');
     if (err) {
@@ -52,7 +54,6 @@ async.series([
     }
 
     // Jot down a couple of URLs
-    app.set('kong_url', wicked.getInternalKongAdminUrl());
     app.set('my_url', wicked.getInternalKongAdapterUrl());
 
     // Now let's register with the portal API; we'll use the standard Admin
