@@ -141,6 +141,52 @@ oauth2.getTokenData = function (app, res, accessToken, refreshToken) {
     });
 };
 
+oauth2.deleteTokens = function (req, res, accessToken, authenticatedUserId) {
+    debug('deleteTokens(), accessToken = ' + accessToken + ', authenticatedUserId = ' + authenticatedUserId + ', correlation ID: ' + req.correlationId);
+
+    // This function is called below with a list of access tokens, depending on how
+    // the tokens are gathered (either directly, a single token, or by a user id)
+    const kongDeleteTokens = function (tokenList) {
+        async.mapSeries(tokenList, function (token, callback) {
+            utils.kongDelete(req.app, 'oauth2_tokens/' + qs.escape(token), callback);
+        }, function (err, results) {
+            if (err) {
+                console.error('kongDeleteTokens failed.');
+                console.error(err);
+                return res.status(500).json({ message: 'Deleting tokens failed. See log for details. Correlation ID: ' + req.correlationId });
+            }
+
+            res.status(204).json({ message: 'Deleted' });
+        });
+    };
+
+    if (accessToken) {
+        // Delete single token mode
+        return kongDeleteTokens([accessToken]);
+    } else if (authenticatedUserId) {
+        // First get the list of access tokens by user id
+        utils.kongGet(req.app, 'oauth2_tokens?authenticated_userid=' + qs.escape(authenticatedUserId), function (err, result) {
+            if (err) {
+                console.error('ERROR: Could not retrieve access tokens by authenticated_userid');
+                console.error(err);
+                return res.status(500).json({ message: 'Kong did not return desired access tokens. Correlation ID: ' + req.correlationId });
+            }
+            if (!result.data || !Array.isArray(result.data)) {
+                console.error('ERROR: GET oauth2_tokens return invalid data.');
+                console.error(result);
+                return res.status(500).json({ message: 'Kong returned an invalid result (data is not present or not an array. Correlation ID: ' + req.correlationId});
+            }
+            const tokenList = [];
+            for (let i=0; i<result.data.length; ++i) {
+                tokenList.push(result.data[i].access_token);
+            }
+            return kongDeleteTokens(tokenList);
+        });
+    } else {
+        return res.status(400).json({ message: 'Bad request. Needs either access_token or authenticated_userid.' });
+    }
+};
+
 // Ok, this just looks as if it were async, but isn't.
 function validateInputData(userInfo, callback) {
     debug('validateUserInfo()');
@@ -151,7 +197,7 @@ function validateInputData(userInfo, callback) {
     if (!userInfo.client_id)
         return callback(buildError('client_id is mandatory.'));
     if (userInfo.scope) {
-        if ((typeof(userInfo.scope) !== 'string') &&
+        if ((typeof (userInfo.scope) !== 'string') &&
             !Array.isArray(userInfo.scope))
             return callback(buildError('scope has to be either a string or a string array'));
     }
@@ -334,7 +380,7 @@ function getPasswordToken(app, inputData, callback) {
 
         // Oh, wow, that worked.
         callback(null, oauthInfo.accessToken);
-    });    
+    });
 }
 
 function getRefreshedToken(app, inputData, callback) {
@@ -401,7 +447,7 @@ function getRefreshedToken(app, inputData, callback) {
 
         // Oh, wow, that worked.
         callback(null, oauthInfo.accessToken);
-    });    
+    });
 }
 
 function lookupSubscription(app, oauthInfo, callback) {
@@ -451,8 +497,8 @@ function getProvisionKey(app, oauthInfo, callback) {
         if (body.data.length <= 0)
             return callback(buildError('For API ' + apiId + ', no oauth2 plugin seems to be configured.'));
         const oauth2Plugin = body.data[0];
-//        if (!oauth2Plugin.config.enable_implicit_grant)
-//            return callback(buildError('API ' + apiId + ' is not configured for the OAuth2 implicit grant.'));
+        //        if (!oauth2Plugin.config.enable_implicit_grant)
+        //            return callback(buildError('API ' + apiId + ' is not configured for the OAuth2 implicit grant.'));
         if (!oauth2Plugin.config.provision_key)
             return callback(buildError('API ' + apiId + ' does not have a valid provision_key.'));
         // Looks good, remember dat thing
@@ -476,9 +522,9 @@ function lookupConsumer(app, oauthInfo, callback) {
         debug('Found these consumers for subscription ' + customId);
         debug(consumer);
 
-        if (!consumer.total || 
-            consumer.total <= 0 || 
-            !consumer.data || 
+        if (!consumer.total ||
+            consumer.total <= 0 ||
+            !consumer.data ||
             consumer.data.length <= 0)
             return callback(buildError('Could not retrieve Kong consumer for API consumer with custom_id ' + customId));
 
@@ -515,7 +561,7 @@ function lookupApi(app, oauthInfo, callback) {
             }
             let foundAuthServer = false;
             for (let i = 0; i < portalApiInfo.authServers.length; ++i) {
-                if(portalApiInfo.authServers[i] === oauthInfo.inputData.auth_server) {
+                if (portalApiInfo.authServers[i] === oauthInfo.inputData.auth_server) {
                     foundAuthServer = true;
                     break;
                 }
@@ -534,7 +580,7 @@ function lookupApi(app, oauthInfo, callback) {
 function buildAuthorizeUrl(apiUrl, requestPath, additionalPath) {
     let hostUrl = apiUrl;
     let reqPath = requestPath;
-    let addPath = additionalPath;  
+    let addPath = additionalPath;
     if (!hostUrl.endsWith('/'))
         hostUrl = hostUrl + '/';
     if (reqPath.startsWith('/'))
@@ -565,12 +611,12 @@ function getAuthorizeRequest(app, responseType, oauthInfo) {
     let scope = null;
     if (oauthInfo.inputData.scope) {
         let s = oauthInfo.inputData.scope;
-        if (typeof(s) === 'string')
+        if (typeof (s) === 'string')
             scope = s;
         else if (Array.isArray(s))
             scope = s.join(' ');
         else // else: what?
-            debug('unknown type of scope input parameter: ' + typeof(s));
+            debug('unknown type of scope input parameter: ' + typeof (s));
     }
     debug('requested scope: ' + scope);
 
@@ -680,12 +726,12 @@ function authorizeConsumerPasswordGrant(app, oauthInfo, callback) {
     let scope = null;
     if (oauthInfo.inputData.scope) {
         let s = oauthInfo.inputData.scope;
-        if (typeof(s) === 'string')
+        if (typeof (s) === 'string')
             scope = s;
         else if (Array.isArray(s))
             scope = s.join(' ');
         else // else: what?
-            debug('unknown type of scope input parameter: ' + typeof(s));
+            debug('unknown type of scope input parameter: ' + typeof (s));
     }
     debug('requested scope: ' + scope);
 

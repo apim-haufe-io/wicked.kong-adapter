@@ -226,6 +226,27 @@ app.get('/oauth2/token', function (req, res, next) {
     oauth2.getTokenData(req.app, res, access_token, refresh_token);
 });
 
+/*
+ Deletes/revokes access tokens by either the access token itself, or
+ by authenticated user id. Pass in either access_token or
+ authenticated_userid as query parameter:
+
+ DELETE /oauth2/token?access_token=<...>
+ DELETE /oauth2/token?authenticated_userid=<...>
+
+ Does not return anything (but a 204 if successful).
+*/
+app.delete('/oauth2/token', function (req, res, next) {
+    debug('DELETE /oauth2/token');
+    let access_token = null;
+    let authenticated_userid = null;
+    if (req.query.access_token)
+        access_token = req.query.access_token;
+    else if (req.query.authenticated_userid)
+        authenticated_userid = req.query.authenticated_userid;
+    oauth2.deleteTokens(req, res, access_token, authenticated_userid);
+});
+
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {
     const err = new Error('Not Found');
