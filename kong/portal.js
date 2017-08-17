@@ -132,7 +132,7 @@ function checkRequestTransformerPlugin(app, apiConfig, plugin) {
 
         for (var i = 0; i < plugin.config.add.headers.length; ++i) {
             if (plugin.config.add.headers[i] == '%%Forwarded') {
-                var prefix = apiConfig.api.request_path;
+                var prefix = apiConfig.api.uris;
                 var proto = app.kongGlobals.network.schema;
                 var rawHost = app.kongGlobals.network.apiHost;
                 var host;
