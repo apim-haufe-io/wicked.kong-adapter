@@ -3,7 +3,10 @@
   "id": "portal-api-internal",
   "auth": "oauth2",
   "settings": {
-    "enable_client_credentials": true
+    "enable_client_credentials": true,
+    "enable_password_grant": true,
+    "enable_authorization_code": true,
+    "enable_implicit_grant": true
   },
   "config": {
     "api": {
