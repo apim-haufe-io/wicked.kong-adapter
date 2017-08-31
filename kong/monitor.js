@@ -44,11 +44,11 @@ const checkKongVersion = function (app, callback) {
 };
 
 const checkKongCluster = function (app, callback) {
-    utils.kongGet(app, 'cluster', function (err, body) {
+    utils.kongGet(app, 'status', function (err, body) {
         if (err)
             return callback(err);
-        if (!body.total) {
-            const err = new Error('Kong answer from /cluster did not contain "total" property.');
+        if (!body.database) {
+            const err = new Error('Kong answer from /status did not contain "database" property.');
             err.status = 500;
             return callback(err);
         }

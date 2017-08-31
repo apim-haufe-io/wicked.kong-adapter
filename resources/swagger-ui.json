@@ -5,9 +5,9 @@
   "config": {
     "api": {
       "upstream_url": "(filled dynamically)/swagger-ui",
-      "request_path": "/swagger-ui",
+      "uris": ["/swagger-ui"],
       "preserve_host": false,
-      "strip_request_path": true,
+      "strip_uri": true,
       "name": "swagger-ui-portal"
     },
     "plugins": [
