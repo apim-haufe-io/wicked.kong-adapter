@@ -50,7 +50,16 @@ portal.getPortalApis = function (app, done) {
         apiList.apis.push(deployApi);
 
         // And the actual Portal API (OAuth 2.0)
-        var portalApi = require('../resources/portal-api.json');
+        var portalApiRaw = require('../resources/portal-api.json');
+        // I sometimes hate node.js. We here clone the JSON from the resource, as
+        // we will change it a little in the sync process (add some plugins and such).
+        // This also would change the data we "require", and thus a resync action
+        // would see already added plugins, and fail. This does not actually occur
+        // in production/when running for real, but only in the case of the integration
+        // tests checking that a full resync does *NOT* trigger any changes via the
+        // Kong API. And yes, I know this is a very ugly way of cloning objects, but
+        // AFAIK it's the only way to DEEP clone objects (object assign is shallow).
+        var portalApi = JSON.parse(JSON.stringify(portalApiRaw));
         portalApi.config.api.upstream_url = apiUrl;
         apiList.apis.push(portalApi);
 
@@ -558,8 +567,9 @@ function injectOAuth2Auth(app, api) {
     if (!api.config.plugins)
         api.config.plugins = [];
     var plugins = api.config.plugins;
-    var keyAuthPlugin = plugins.find(function (plugin) { return plugin.name == "key-auth"; });
-    if (keyAuthPlugin)
+    //console.log(JSON.stringify(plugins, null, 2));
+    var oauth2Plugin = plugins.find(function (plugin) { return plugin.name == "oauth2"; });
+    if (oauth2Plugin)
         throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'oauth2' plugin yourself. Remove it and retry.");
     var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
     if (aclPlugin)
