@@ -256,10 +256,10 @@ function getImplicitToken(app, inputData, callback) {
     //     custom_id: (subscription id)
     //   },
     //   apiInfo: {
-    //     strip_request_path: true,
+    //     strip_uri: true,
     //     preserve_host: false,
     //     name: "mobile",
-    //     request_path : "/mobile/v1",
+    //     uris : [ "/mobile/v1" ],
     //     id: "7baec4f7-131d-44e9-a746-312352cedab1",
     //     upstream_url: "https://upstream.url/api/v1",
     //     created_at: 1477320419000
@@ -345,10 +345,10 @@ function getPasswordToken(app, inputData, callback) {
     //     custom_id: (subscription id)
     //   },
     //   apiInfo: {
-    //     strip_request_path: true,
+    //     strip_uri: true,
     //     preserve_host: false,
     //     name: "mobile",
-    //     request_path : "/mobile/v1",
+    //     uris : [ "/mobile/v1" ],
     //     id: "7baec4f7-131d-44e9-a746-312352cedab1",
     //     upstream_url: "https://upstream.url/api/v1",
     //     created_at: 1477320419000
@@ -413,10 +413,10 @@ function getRefreshedToken(app, inputData, callback) {
     //     custom_id: (subscription id)
     //   },
     //   apiInfo: {
-    //     strip_request_path: true,
+    //     strip_uri: true,
     //     preserve_host: false,
     //     name: "mobile",
-    //     request_path : "/mobile/v1",
+    //     uris : [ "/mobile/v1" ],
     //     id: "7baec4f7-131d-44e9-a746-312352cedab1",
     //     upstream_url: "https://upstream.url/api/v1",
     //     created_at: 1477320419000
@@ -548,8 +548,8 @@ function lookupApi(app, oauthInfo, callback) {
         const apiInfo = results.kongApi;
         const portalApiInfo = results.portalApi;
 
-        if (!apiInfo.request_path)
-            return callback(buildError('API ' + apiId + ' does not have a valid request_path setting.'));
+        if (!apiInfo.uris)
+            return callback(buildError('API ' + apiId + ' does not have a valid uris setting.'));
 
         // Check auth_server?
         if (oauthInfo.inputData.auth_server) {
@@ -594,7 +594,7 @@ function buildAuthorizeUrl(apiUrl, requestPath, additionalPath) {
 
 function getAuthorizeRequest(app, responseType, oauthInfo) {
     let apiUrl = wicked.getExternalApiUrl();
-    const authorizeUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.request_path, '/oauth2/authorize');
+    const authorizeUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.uris[0], '/oauth2/authorize');
     debug('authorizeUrl: ' + authorizeUrl);
 
     let headers = null;
@@ -709,7 +709,7 @@ function authorizeConsumerPasswordGrant(app, oauthInfo, callback) {
         !oauthInfo.oauth2Config.enable_password_grant)
         return callback(buildError('The API ' + oauthInfo.inputData.api_id + ' is not configured for the OAuth2 resource owner password grant.'), 400);
     let apiUrl = wicked.getExternalApiUrl();
-    const tokenUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.request_path, '/oauth2/token');
+    const tokenUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.uris[0], '/oauth2/token');
     debug('tokenUrl: ' + tokenUrl);
 
     let headers = null;
@@ -781,7 +781,7 @@ function authorizeConsumerRefreshToken(app, oauthInfo, callback) {
         return callback(buildError('The API ' + oauthInfo.inputData.api_id + ' is not configured for granting refresh token requests.'), 400);
     }
     let apiUrl = wicked.getExternalApiUrl();
-    const tokenUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.request_path, '/oauth2/token');
+    const tokenUrl = buildAuthorizeUrl(apiUrl, oauthInfo.apiInfo.uris[0], '/oauth2/token');
     debug('tokenUrl: ' + tokenUrl);
 
     let headers = null;

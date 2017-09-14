@@ -86,18 +86,58 @@ app.get('/ping', function (req, res, next) {
     res.json(health);
 });
 
-app.post('/kill', function (req, res, next) {
-    debug('/kill');
-    if (!process.env.ALLOW_KILL) {
-        debug('/kill rejected, ALLOW_KILL is not set.');
-        return res.status(403).json({});
-    }
-    debug('/kill accepted. Shutting down.');
-    res.status(204).json({});
-    setTimeout(function() {
-        process.exit(0);
-    }, 1000);
-});
+/*
+    End point to trigger a full resync of the Kong settings, similar
+    as at initial startup of the component. This is used in conjunection
+    with the integration tests to check whether a full resync triggers
+    any actions on Kong (POST, PUT, DELETE), which should not be the case.
+
+    Returns a list with counts of actions since this resync.
+
+    Requires the env variable ALLOW_RESYNC to be set; if the variable is
+    not set, a POST to this end point will just render a 404.
+*/
+if (process.env.ALLOW_RESYNC) {
+    app.post('/resync', function (req, res, next) {
+        debug('/resync');
+        // Reset usage statistics and keep changing actions/non-matching objects
+        utils.resetStatistics(true);
+        kongMain.resync(req.app, function (err) {
+            // Retrieve the list of statistics, we will definitely return these,
+            // disregarding of the success of the action.
+            const stats = utils.getStatistics();
+            debug('Statistics for the /resync call:');
+            debug(JSON.stringify(stats, null, 2));
+            if (err) {
+                console.error(err);
+                stats.err = err;
+                res.status(500);
+            } else {
+                res.status(200);
+            }
+            return res.send(stats);
+        });
+    });
+}
+
+/*
+    End point used to kill the Kong Adapter process. This is used
+    in conjunction with the integration tests in the wicked.portal-test
+    project. For this endpoint to work, the ALLOW_KILL environment
+    variable must be set to a non-null and non-empty value.
+
+    In other cases, a POST to this end point will just render a 404
+    answer, as the end point is not even registered.
+*/
+if (process.env.ALLOW_KILL) {
+    app.post('/kill', function (req, res, next) {
+        debug('/kill accepted. Shutting down.');
+        res.status(204).json({});
+        setTimeout(function() {
+            process.exit(0);
+        }, 1000);
+    });
+}
 
 /*
  End point for authorizing end users for use with the oauth2

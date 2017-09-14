@@ -8,9 +8,9 @@
   "config": {
     "api": {
       "upstream_url": "(filled dynamically)/",
-      "request_path": "/portal-api/v1",
+      "uris": ["/portal-api/v1"],
       "preserve_host": false,
-      "strip_request_path": true,
+      "strip_uri": true,
       "name": "portal-api-internal"
     },
     "plugins": [

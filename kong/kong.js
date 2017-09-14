@@ -229,7 +229,7 @@ kong.deleteKongPlugins = function (app, deleteList, done) {
                     "name": "My Application",
                     "client_id": "my-app-petstore",
                     "client_secret": "uwortiu4eot8g7he59t87je59thoerizuoh",
-                    "redirect_uri": "http://dummy.org"
+                    "uris": ["http://dummy.org"]
                 }
             ]
         },

@@ -52,6 +52,15 @@ utils.matchObjects = function (apiObject, kongObject) {
         debug(' - objects do not match.');
         debug('apiObject: ' + JSON.stringify(apiObject, null, 2));
         debug('kongObject: ' + JSON.stringify(kongObject, null, 2));
+        if (utils._keepChangingActions) {
+            // Store mismatching matches; this is a debugging mechanism for the
+            // integration tests mostly. Find out which objects do not match and
+            // and enable checking on them.
+            utils._statistics.failedComparisons.push({
+                apiObject: apiObject,
+                kongObject: kongObject
+            });
+        }
     }
     return returnValue;
 };
@@ -110,10 +119,67 @@ utils.getKongClusterStatus = function () {
     return utils._kongClusterStatus;
 };
 
+function defaultStatistics() {
+    return {
+        actions: [],
+        failedComparisons: []
+    };
+}
+utils._statistics = defaultStatistics();
+utils._keepChangingActions = false;
+/*
+    Resets the counters of actions taken against the Kong API; useful when debugging
+    why changes are redone over and over again, and used specifically in the integration
+    test suite to make sure the models created from the portal API configuration and the
+    ones present in the Kong database match.
+
+    See kongMain.resync() (the /resync end point).
+*/
+utils.resetStatistics = function (keepChangingActions) {
+    utils._statistics = defaultStatistics();
+    if (keepChangingActions)
+        utils._keepChangingActions = true;
+    else
+        utils._keepChangingActions = false;
+};
+
+/*
+    Retrieves a list of usage statistics, including a list of "changing" API calls
+    to Kong, in case the flag "keep changing settings" was activated when the statistics
+    were reset. This is used in conjunction with the /resync end point to check
+    whether a resync is a complete NOP after the sync queue has already been worked off.
+
+    Part of the statistics is also a list of objects which did not match when comparing,
+    see "matchObjects" for more information.
+*/
+utils.getStatistics = function () {
+    utils._keepChangingActions = false;
+    return utils._statistics;
+};
+
+/*
+    Helper method to record Kong API action statistics, and possible also to record
+    a list of changing API calls for debugging purposes (integration tests).
+*/
+function kongActionStat(method, url, body) {
+    if (!utils._statistics[method])
+        utils._statistics[method] = 0;
+    utils._statistics[method]++;
+    if (utils._keepChangingActions &&
+        method != 'GET') {
+        utils._statistics.actions.push({
+            method: method,
+            url: url,
+            body: body
+        });
+    }
+}
+
 function kongAction(app, method, url, body, expectedStatusCode, callback) {
     //console.log('$$$$$$ kongAction: ' + method + ' ' + url);
     //console.log(body);
     debug('kongAction(), ' + method + ', ' + url);
+    kongActionStat(method, url, body);
 
     // If for some reason, we think Kong is not available, tell the upstream
     if (!utils._kongAvailable) {
@@ -145,6 +211,8 @@ function kongAction(app, method, url, body, expectedStatusCode, callback) {
         if (expectedStatusCode != apiResponse.statusCode) {
             const err = new Error('kongAction ' + method + ' on ' + url + ' did not return the expected status code (got: ' + apiResponse.statusCode + ', expected: ' + expectedStatusCode + ').');
             err.status = apiResponse.statusCode;
+            debug(method + ' /' + url);
+            debug(methodBody);
             debug(apiBody);
             console.error(apiBody);
             return callback(err);
@@ -235,7 +303,7 @@ utils.getVersion = function () {
 };
 
 utils._expectedKongVersion = null;
-utils.getExpectedKongVersion = function() {
+utils.getExpectedKongVersion = function () {
     if (!utils._expectedKongVersion) {
         const packageInfo = utils.getPackageJson();
         if (packageInfo.config && packageInfo.config.kongversion)
