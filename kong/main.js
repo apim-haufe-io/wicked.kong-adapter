@@ -60,6 +60,14 @@ kongMain.init = function (app, options, done) {
     });
 };
 
+kongMain.resync = function (app, done) {
+    var initOptions = {
+        syncApis: true,
+        syncConsumers: true
+    };
+    kongMain.init(app, initOptions, done);
+};
+
 kongMain.processWebhooks = function (app, webhookList, done) {
     debug('processWebhooks()');
     const onlyDelete = false;
@@ -113,7 +121,7 @@ function dispatchWebhookAction(app, webhookData, onlyDelete, callback) {
         syncAction = callback => deleteUserConsumer(app, webhookData.data.deletedUserId, callback);
     else if (entity === 'import') // Woooo!
         syncAction = callback => doPostImport(app, callback);
-    
+
     async.series([
         callback => {
             if (syncAction)
@@ -174,7 +182,7 @@ function doPostImport(app, done) {
     debug('doPostImport()');
     async.series([
         callback => sync.wipeAllConsumers(app, callback),
-        callback => sync.syncAllConsumers(app, callback) 
+        callback => sync.syncAllConsumers(app, callback)
     ], done);
 }
 
