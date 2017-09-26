@@ -289,13 +289,12 @@ function shouldIgnore(ignoreList, name) {
     if(! name){
         return false;
     }
-    var exist = false;
     for (let i = 0; i < list.length; ++i) {
         if( list[i] === name) {
-            exist = true;
+            return true;
         }
     }
-    return exist;
+    return false;
 }
 function assemblePluginTodoLists(app, portalApi, kongApi) {
     debug('assemblePluginTodoLists()');
