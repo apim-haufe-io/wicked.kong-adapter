@@ -284,7 +284,10 @@ function assembleApiTodoLists(portalApis, kongApis) {
         deleteList: deleteList
     };
 }
-function shouldIgnore(ignoreList, name) {
+function shouldIgnore(useKongAdaptor, ignoreList, name) {
+    if (!useKongAdaptor) {
+        return false
+    }
     var list = ignoreList ? ignoreList : []
     if(! name){
         return false;
@@ -299,6 +302,7 @@ function shouldIgnore(ignoreList, name) {
 function assemblePluginTodoLists(app, portalApi, kongApi) {
     debug('assemblePluginTodoLists()');
     const ignoreList = app.kongGlobals ? (app.kongGlobals.kongAdaptor ? (app.kongGlobals.kongAdaptor.ignoreList ? app.kongGlobals.kongAdaptor.ignoreList : [] ) : []) : [];
+    const useKongAdaptor = app.kongGlobals ? (app.kongGlobals.kongAdaptor ? (app.kongGlobals.kongAdaptor.useKongAdaptor ? app.kongGlobals.kongAdaptor.useKongAdaptor : false) : false) : false;
     const addList = [];
     const updateList = [];
     const deleteList = [];
@@ -315,7 +319,7 @@ function assemblePluginTodoLists(app, portalApi, kongApi) {
             });
         } else {
             let kongPlugin = kongApi.plugins[kongPluginIndex];
-            if (!utils.matchObjects(portalPlugin, kongPlugin) && !shouldIgnore(ignoreList, kongPlugin.name)) {
+            if (!utils.matchObjects(portalPlugin, kongPlugin) && !shouldIgnore(useKongAdaptor, ignoreList, kongPlugin.name)) {
                 updateList.push(
                 {
                     portalApi: portalApi,
@@ -331,7 +335,7 @@ function assemblePluginTodoLists(app, portalApi, kongApi) {
     // Mop up needed?
     for (let i = 0; i < kongApi.plugins.length; ++i) {
         let kongPlugin = kongApi.plugins[i];
-        if (!handledKongPlugins[kongPlugin.name] && !shouldIgnore(ignoreList, kongPlugin.name)) {
+        if (!handledKongPlugins[kongPlugin.name] && !shouldIgnore(useKongAdaptor, ignoreList, kongPlugin.name)) {
             deleteList.push({
                 kongApi: kongApi,
                 kongPlugin: kongPlugin
@@ -397,6 +401,7 @@ function assembleConsumerTodoLists(portalConsumers, kongConsumers) {
 function assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer) {
     debug('assembleConsumerApiPluginsTodoLists()');
     const ignoreList = app.kongGlobals ? (app.kongGlobals.kongAdaptor ? (app.kongGlobals.kongAdaptor.ignoreList ? app.kongGlobals.kongAdaptor.ignoreList : [] ) : []) : [];
+    const useKongAdaptor = app.kongGlobals ? (app.kongGlobals.kongAdaptor ? (app.kongGlobals.kongAdaptor.useKongAdaptor ? app.kongGlobals.kongAdaptor.useKongAdaptor : false) : false) : false;
     const addList = [];
     const patchList = [];
     const deleteList = [];
@@ -413,7 +418,7 @@ function assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer) 
         }
 
         if (kongApiPlugin &&
-            !utils.matchObjects(portalApiPlugin, kongApiPlugin) && !shouldIgnore(ignoreList, kongApiPlugin.name)) {
+            !utils.matchObjects(portalApiPlugin, kongApiPlugin) && !shouldIgnore(useKongAdaptor, ignoreList, kongApiPlugin.name)) {
             patchList.push({
                 portalConsumer: portalConsumer,
                 portalApiPlugin: portalApiPlugin,
@@ -428,7 +433,7 @@ function assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer) 
     // Mop up
     for (let i = 0; i < kongConsumer.apiPlugins.length; ++i) {
         let kongApiPlugin = kongConsumer.apiPlugins[i];
-        if (!handledPlugins[kongApiPlugin.name] && !shouldIgnore(ignoreList, kongApiPlugin.name)) {
+        if (!handledPlugins[kongApiPlugin.name] && !shouldIgnore(useKongAdaptor, ignoreList, kongApiPlugin.name)) {
             deleteList.push({
                 kongConsumer: kongConsumer,
                 kongApiPlugin: kongApiPlugin
