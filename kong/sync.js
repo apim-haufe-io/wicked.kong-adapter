@@ -285,8 +285,8 @@ function assembleApiTodoLists(portalApis, kongApis) {
     };
 }
 function shouldIgnore(app, name) {
-    const ignoreList = app.kongGlobals ? (app.kongGlobals.kongAdaptor ? (app.kongGlobals.kongAdaptor.ignoreList ? app.kongGlobals.kongAdaptor.ignoreList : [] ) : []) : [];
-    const useKongAdaptor = app.kongGlobals ? (app.kongGlobals.kongAdaptor ? (app.kongGlobals.kongAdaptor.useKongAdaptor ? app.kongGlobals.kongAdaptor.useKongAdaptor : false) : false) : false;
+    const ignoreList = app.kongGlobals ? (app.kongGlobals.kongAdapter ? (app.kongGlobals.kongAdapter.ignoreList ? app.kongGlobals.kongAdapter.ignoreList : [] ) : []) : [];
+    const useKongAdaptor = app.kongGlobals ? (app.kongGlobals.kongAdapter ? (app.kongGlobals.kongAdapter.useKongAdapter ? app.kongGlobals.kongAdapter.useKongAdapter : false) : false) : false;
 
     if (!useKongAdaptor) {
         return false
