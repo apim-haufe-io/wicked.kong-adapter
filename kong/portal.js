@@ -383,46 +383,6 @@ function injectKeyAuth(app, api) {
     return api;
 }
 
-/*
-function injectClientCredentialsAuth(app, api) {
-    debug('injectClientCredentialsAuth()');
-    if (!api.config.plugins)
-        api.config.plugins = [];
-    var plugins = api.config.plugins;
-    var keyAuthPlugin = plugins.find(function (plugin) { return plugin.name == "key-auth"; });
-    if (keyAuthPlugin)
-        throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'oauth2' plugin yourself. Remove it and retry.");
-    var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
-    if (aclPlugin)
-        throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
-    let token_expiration = 3600;
-    if (api.settings && api.settings.token_expiration)
-        token_expiration = Number(api.settings.token_expiration);
-    plugins.push({
-        name: 'oauth2',
-        enabled: true,
-        config: {
-            scopes: ['api'],
-            token_expiration: token_expiration,
-            enable_authorization_code: false,
-            enable_client_credentials: true,
-            enable_implicit_grant: false,
-            enable_password_grant: false,
-            hide_credentials: true,
-            accept_http_if_already_terminated: true
-        }
-    });
-    plugins.push({
-        name: 'acl',
-        enabled: true,
-        config: {
-            whitelist: [api.id]
-        }
-    });
-    return api;
-}
-*/
-
 function injectOAuth2Auth(app, api) {
     debug('injectImplicitAuth()');
     if (!api.config.plugins)
