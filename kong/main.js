@@ -113,12 +113,6 @@ function dispatchWebhookAction(app, webhookData, onlyDelete, callback) {
         syncAction = callback => syncAppConsumers(app, webhookData.data.applicationId, callback);
     else if (entity === 'subscription' && action === 'delete')
         syncAction = callback => deleteAppSubscriptionConsumer(app, webhookData.data, callback);
-    else if (entity === 'user' && action === 'add' && !onlyDelete)
-        syncAction = callback => syncUserConsumer(app, webhookData.data.userId, callback);
-    else if (entity === 'user' && action === 'update' && !onlyDelete)
-        syncAction = callback => syncUserConsumer(app, webhookData.data.updatedUserId, callback);
-    else if (entity === 'user' && action === 'delete')
-        syncAction = callback => deleteUserConsumer(app, webhookData.data.deletedUserId, callback);
     else if (entity === 'import') // Woooo!
         syncAction = callback => doPostImport(app, callback);
 
@@ -157,16 +151,6 @@ function deleteAppSubscriptionConsumer(app, webhookSubsInfo, callback) {
         auth: webhookSubsInfo.auth
     };
     sync.deleteAppSubscriptionConsumer(app, subsInfo, callback);
-}
-
-function syncUserConsumer(app, userId, callback) {
-    // Relay to sync
-    sync.syncUserConsumer(app, userId, callback);
-}
-
-function deleteUserConsumer(app, userId, callback) {
-    // Relay to sync
-    sync.deleteUserConsumer(app, userId, callback);
 }
 
 function acknowledgeEvents(app, eventList, done) {

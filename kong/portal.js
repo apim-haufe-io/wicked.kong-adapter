@@ -37,32 +37,6 @@ portal.getPortalApis = function (app, done) {
         pingApi.config.api.upstream_url = portalHost + '/ping';
         apiList.apis.push(pingApi);
 
-        // Add the /deploy API
-        var deployApi = require('../resources/deploy-api.json');
-        var apiUrl = app.kongGlobals.network.apiUrl;
-        if (!apiUrl) {
-            debug('apiUrl is not set in globals.json, defaulting to http://portal-api:3001');
-            apiUrl = 'http://portal-api:3001';
-        }
-        if (apiUrl.endsWith('/'))
-            apiUrl = apiUrl.substring(0, apiUrl.length - 1);
-        deployApi.config.api.upstream_url = apiUrl + '/deploy';
-        apiList.apis.push(deployApi);
-
-        // And the actual Portal API (OAuth 2.0)
-        var portalApiRaw = require('../resources/portal-api.json');
-        // I sometimes hate node.js. We here clone the JSON from the resource, as
-        // we will change it a little in the sync process (add some plugins and such).
-        // This also would change the data we "require", and thus a resync action
-        // would see already added plugins, and fail. This does not actually occur
-        // in production/when running for real, but only in the case of the integration
-        // tests checking that a full resync does *NOT* trigger any changes via the
-        // Kong API. And yes, I know this is a very ugly way of cloning objects, but
-        // AFAIK it's the only way to DEEP clone objects (object assign is shallow).
-        var portalApi = JSON.parse(JSON.stringify(portalApiRaw));
-        portalApi.config.api.upstream_url = apiUrl;
-        apiList.apis.push(portalApi);
-
         // And the auth Servers please
         for (let i = 0; i < authServerList.length; ++i)
             apiList.apis.push(authServerList[i]);
@@ -85,6 +59,20 @@ function getActualApis(app, callback) {
     utils.apiGet(app, 'apis', function (err, apiList) {
         if (err)
             return callback(err);
+        // Make the scope lists Kong compatible (wicked has more info than Kong)
+        for (let i = 0; i < apiList.apis.length; ++i) {
+            const api = apiList.apis[i];
+            if (api.settings) {
+                if (api.settings.scopes) {
+                    const newScopes = [];
+                    for (let scope in api.settings.scopes) {
+                        // Take only the keys.
+                        newScopes.push(scope);
+                    }
+                    api.settings.scopes = newScopes;
+                }
+            }
+        }
         // Enrich apiList with the configuration.
         async.eachLimit(apiList.apis, MAX_PARALLEL_CALLS, function (apiDef, callback) {
             utils.apiGet(app, 'apis/' + apiDef.id + '/config', function (err, apiConfig) {
@@ -214,30 +202,9 @@ portal.getAppConsumers = function (app, appId, callback) {
     });
 };
 
-/* One user can have max one consumer (possibly none) */
-portal.getUserConsumer = function (app, userId, callback) {
-    debug('getPortalConsumerForUser() ' + userId);
-    if (!isInternalApiEnabled(app))
-        return setTimeout(callback, 0, null, []); // async version of callback(null, [])
-    const userList = [{ id: userId }];
-    enrichUsers(app, userList, callback);
-};
-
 portal.getAllPortalConsumers = function (app, callback) {
     debug('getAllPortalConsumers()');
-    async.parallel({
-        appConsumers: callback => getAllAppConsumers(app, callback),
-        userConsumers: callback => getAllUserConsumers(app, callback)
-    }, function (err, results) {
-        if (err)
-            return callback(err);
-
-        const appConsumers = results.appConsumers;
-        const userConsumers = results.userConsumers;
-
-        const allConsumers = appConsumers.concat(userConsumers);
-        callback(null, allConsumers);
-    });
+    return getAllAppConsumers(app, callback);
 };
 
 function getAllAppConsumers(app, callback) {
@@ -253,112 +220,6 @@ function getAllAppConsumers(app, callback) {
         const apiPlans = results.apiPlans;
 
         enrichApplications(app, applicationList, apiPlans, callback);
-    });
-}
-
-function getAllUserConsumers(app, callback) {
-    debug('getAllUserConsumers()');
-    if (isInternalApiEnabled(app)) {
-        utils.apiGet(app, 'users', function (err, userList) {
-            if (err)
-                return callback(err);
-            enrichUsers(app, userList, callback);
-        });
-    } else {
-        process.nextTick(function () { callback(null, []); });
-    }
-}
-
-function userHasGroup(userInfo, group) {
-    if (userInfo &&
-        userInfo.groups) {
-        for (var i = 0; i < userInfo.groups.length; ++i) {
-            if (userInfo.groups[i] == group)
-                return true;
-        }
-        return false;
-    } else {
-        return false;
-    }
-}
-
-function enrichUsers(app, userList, done) {
-    console.log('enrichUsers()');
-    debug('enrichUsers(), userList = ' + utils.getText(userList));
-    // We need to use "apiGetAsUser" here in order to retrieve the client
-    // credentials. You won't see those for other users in the UI. 
-    async.mapLimit(userList, MAX_PARALLEL_CALLS, function (userInfo, callback) {
-        utils.apiGetAsUser(app, 'users/' + userInfo.id, userInfo.id, function (err, userData) {
-            if (err && err.status === 404) {
-                // Half expected; may be if the user was deleted before the
-                // webhook event was processed.
-                console.error('*** Could not find user with id ' + userInfo.id);
-                console.error('*** Skipping (not quitting).');
-                return callback(null, null);
-            } else if (err) {
-                return callback(err);
-            }
-            return callback(null, userData);
-        });
-    }, function (err, results) {
-        if (err) {
-            console.error(err);
-            return done(err);
-        }
-
-        var userConsumers = [];
-        for (var i = 0; i < results.length; ++i) {
-            // for (var i=0; i<5; ++i) {
-            var thisUser = results[i];
-            if (!thisUser) // May be from a 404
-                continue;
-
-            debug(thisUser);
-
-            // If this user doesn't have a clientId and clientSecret,
-            // we can quit immediately.
-            if (!(thisUser.clientId && thisUser.clientSecret)) {
-                console.log('User ' + thisUser.email + ' does not have client creds.');
-                continue;
-            }
-
-            // If we're here, glob.api.portal.enableApi must be true
-            var requiredGroup = app.kongGlobals.api.portal.requiredGroup;
-            if (requiredGroup &&
-                !userHasGroup(thisUser, requiredGroup)) {
-                console.log('User ' + thisUser.email + ' does not have correct group.');
-                continue;
-            }
-            var clientId = thisUser.clientId;
-            var clientSecret = thisUser.clientSecret;
-
-            var userConsumer = {
-                consumer: {
-                    username: thisUser.email,
-                    custom_id: thisUser.id
-                },
-                plugins: {
-                    acls: [{
-                        group: 'portal-api-internal'
-                    }],
-                    oauth2: [{
-                        name: thisUser.email,
-                        client_id: clientId,
-                        client_secret: clientSecret,
-                        redirect_uri: ['http://dummy.org']
-                    }]
-                },
-                apiPlugins: []
-            };
-
-            debug(userConsumer);
-
-            userConsumers.push(userConsumer);
-        }
-
-        debug('userConsumers.length == ' + userConsumers.length);
-
-        done(null, userConsumers);
     });
 }
 

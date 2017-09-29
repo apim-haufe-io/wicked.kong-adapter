@@ -214,7 +214,7 @@ function kongAction(app, method, url, body, expectedStatusCode, callback) {
             debug(method + ' /' + url);
             debug(methodBody);
             debug(apiBody);
-            console.error(apiBody);
+            //console.error(apiBody);
             return callback(err);
         }
         callback(null, utils.getJson(apiBody));

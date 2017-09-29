@@ -110,20 +110,6 @@ sync.syncAppConsumers = function (app, appId, callback) {
     });
 };
 
-sync.syncUserConsumer = function (app, userId, callback) {
-    debug('syncUserConsumer(): ' + userId);
-    async.waterfall([
-        callback => portal.getUserConsumer(app, userId, callback),
-        (appConsumers, callback) => syncConsumers(app, appConsumers, callback)
-    ], function (err) {
-        if (err)
-            return callback(err);
-        // We're fine.
-        debug('syncUserConsumer() succeeded for user ' + userId);
-        callback(null);
-    });
-};
-
 /*
  If we delete an application, we also need to know which subscriptions
  it has, as the consumers in kong are not per application, but rather
@@ -158,11 +144,6 @@ sync.deleteAppConsumers = function (app, appId, subscriptionList, callback) {
 sync.deleteAppSubscriptionConsumer = function (app, subsInfo, callback) {
     debug('deleteAppSubscriptionConsumer() appId: ' + subsInfo.application + ', api: ' + subsInfo.api);
     kong.deleteConsumerWithUsername(app, utils.makeUserName(subsInfo.application, subsInfo.api), callback);
-};
-
-sync.deleteUserConsumer = function (app, userId, callback) {
-    debug('deleteUserConsumer() ' + userId);
-    kong.deleteConsumerWithCustomId(app, userId, callback);
 };
 
 function syncConsumers(app, portalConsumers, done) {
