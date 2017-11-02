@@ -314,6 +314,7 @@ kong.CONSUMER_PLUGINS = [
     "oauth2",
     "key-auth",
     "basic-auth",
+    "jwt",
     "hmac-auth"
 ];
 
