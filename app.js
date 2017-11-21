@@ -22,7 +22,7 @@ app.use(correlationIdHandler);
 logger.token('correlation-id', function (req, res) {
     return req.correlationId;
 });
-app.use(logger('{"date":":date[clf]","method":":method","url":":url","remote-addr":":remote-addr","version":":http-version","status":":status","content-length":":res[content-length]","referrer":":referrer","response-time":":response-time","correlation-id":":correlation-id"}'));
+app.use(logger('{"date":":date[iso]","method":":method","url":":url","remote-addr":":remote-addr","version":":http-version","status":":status","content-length":":res[content-length]","referrer":":referrer","response-time":":response-time","correlation-id":":correlation-id"}'));
 // Make sure we get the body directly as JSON. Thanks.
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
