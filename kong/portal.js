@@ -68,7 +68,7 @@ portal.getPortalApis = function (app, done) {
             apiList.apis.push(authServerList[i]);
 
         debug('getPortalApis():');
-        debug(apiList);
+        debug(JSON.stringify(apiList));
 
         try {
             injectAuthPlugins(app, apiList);
@@ -356,6 +356,7 @@ function enrichUsers(app, userList, done) {
             userConsumers.push(userConsumer);
         }
 
+
         debug('userConsumers.length == ' + userConsumers.length);
 
         done(null, userConsumers);
@@ -439,6 +440,13 @@ function enrichApplications(app, applicationList, apiPlans, done) {
                         client_secret: appSubs.clientSecret,
                         redirect_uri: [redirectUri]
                     }];
+                } else if ("jwt" == appSubs.auth) {
+                  consumerInfo.plugins.jwt =[{
+
+                    key: app.kongGlobals.auth.jwt.key,
+                    rsa_public_key: app.kongGlobals.auth.jwt.rsa_public_key,
+                    algorithm: "RS256"
+                  }];
                 } else if (!appSubs.auth || "key-auth" == appSubs.auth) {
                     consumerInfo.plugins["key-auth"] = [{
                         key: appSubs.apikey
@@ -488,6 +496,8 @@ function injectAuthPlugins(app, apiList) {
             injectKeyAuth(app, thisApi);
         else if ("oauth2" == thisApi.auth)
             injectOAuth2Auth(app, thisApi);
+        else if ("jwt" == thisApi.auth)
+            injectJWTAuth(app, thisApi);
         else
             throw new Error("Unknown 'auth' setting: " + thisApi.auth);
     }
@@ -623,7 +633,34 @@ function injectOAuth2Auth(app, api) {
         }
     });
 }
-
+function injectJWTAuth(app, api) {
+    debug('injectJWTAuth()');
+    if (!api.config.plugins)
+        api.config.plugins = [];
+    var plugins = api.config.plugins;
+    var jwtPlugin = plugins.find(function (plugin) { return plugin.name == "jwt"; });
+    if (jwtPlugin)
+        throw new Error("If you use 'jwt' in the apis.json, you must not provide a 'jwt' plugin yourself. Remove it and retry.");
+    var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
+    if (aclPlugin)
+        throw new Error("If you use 'jwt' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
+    plugins.push({
+        name: 'jwt',
+        enabled: true,
+        config: {
+          uri_param_names: ["jwt"],
+          key_claim_name: "iss",
+        }
+    });
+    plugins.push({
+        name: 'acl',
+        enabled: true,
+        config: {
+            whitelist: [api.id]
+        }
+    });
+    return api;
+}
 function isInternalApiEnabled(app) {
     return (app.kongGlobals.api &&
         app.kongGlobals.api.portal &&
