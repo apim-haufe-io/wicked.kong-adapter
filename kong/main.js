@@ -1,14 +1,14 @@
 'use strict';
 
-var async = require('async');
-var debug = require('debug')('kong-adapter:main');
+const async = require('async');
+const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:main');
 
-var utils = require('./utils');
-//var kong = require('./kong');
-//var portal = require('./portal');
-var sync = require('./sync');
+const utils = require('./utils');
+//const kong = require('./kong');
+//const portal = require('./portal');
+const sync = require('./sync');
 
-var kongMain = function () { };
+const kongMain = function () { };
 
 const MAX_ASYNC_CALLS = 10;
 
@@ -61,7 +61,7 @@ kongMain.init = function (app, options, done) {
 };
 
 kongMain.resync = function (app, done) {
-    var initOptions = {
+    const initOptions = {
         syncApis: true,
         syncConsumers: true
     };
@@ -181,11 +181,11 @@ kongMain.deinit = function (app, done) {
 
 function initGlobals(app, done) {
     debug('initGlobals()');
-    var myUrl = app.get('my_url');
+    const myUrl = app.get('my_url');
 
     async.parallel({
         registerWebhook: function (callback) {
-            var putPayload = {
+            const putPayload = {
                 id: 'kong-adapter',
                 url: myUrl
             };

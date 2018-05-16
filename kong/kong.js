@@ -1,11 +1,11 @@
 'use strict';
 
-var async = require('async');
-var debug = require('debug')('kong-adapter:kong');
-var qs = require('querystring');
-var utils = require('./utils');
+const async = require('async');
+const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:kong');
+const qs = require('querystring');
+const utils = require('./utils');
 
-var kong = function () { };
+const kong = function () { };
 
 // The maximum number of async I/O calls we fire off against
 // the Kong instance for one single call.
@@ -18,13 +18,13 @@ kong.getKongApis = function (app, done) {
         if (err)
             return done(err);
 
-        var apiList = {
+        let apiList = {
             apis: []
         };
 
         // Add an "api" property for the configuration, makes it easier
         // to compare the portal and Kong configurations.
-        for (var i = 0; i < rawApiList.data.length; ++i) {
+        for (let i = 0; i < rawApiList.data.length; ++i) {
             apiList.apis.push({
                 api: rawApiList.data[i]
             });
@@ -53,9 +53,9 @@ kong.getKongApis = function (app, done) {
 
 function removeKongConsumerPlugins(apiList) {
     debug('removeKongConsumerPlugins()');
-    for (var i = 0; i < apiList.apis.length; ++i) {
-        var thisApi = apiList.apis[i];
-        var consumerPluginIndex = 0;
+    for (let i = 0; i < apiList.apis.length; ++i) {
+        const thisApi = apiList.apis[i];
+        let consumerPluginIndex = 0;
         while (consumerPluginIndex >= 0) {
             consumerPluginIndex = utils.getIndexBy(thisApi.plugins, function (plugin) { return !!plugin.consumer_id; });
             if (consumerPluginIndex >= 0)
@@ -76,11 +76,11 @@ kong.addKongApis = function (app, addList, done) {
         utils.kongPost(app, 'apis', addItem.portalApi.config.api, function (err, apiResponse) {
             if (err)
                 return done(err);
-            var kongApi = { api: apiResponse };
+            const kongApi = { api: apiResponse };
             debug(kongApi);
 
-            var addList = [];
-            for (var i = 0; i < addItem.portalApi.config.plugins.length; ++i) {
+            const addList = [];
+            for (let i = 0; i < addItem.portalApi.config.plugins.length; ++i) {
                 addList.push({
                     portalApi: addItem,
                     portalPlugin: addItem.portalApi.config.plugins[i],
@@ -105,12 +105,12 @@ kong.updateKongApis = function (app, sync, updateList, done) {
     // - portalApi: The portal's API definition, including plugins
     // - kongApi: Kong's API definition, including plugins
     async.eachSeries(updateList, function (updateItem, callback) {
-        var portalApi = updateItem.portalApi;
-        var kongApi = updateItem.kongApi;
+        const portalApi = updateItem.portalApi;
+        const kongApi = updateItem.kongApi;
 
         debug('portalApi: ' + JSON.stringify(portalApi.config.api, null, 2));
         debug('kongApi: ' + JSON.stringify(kongApi.api, null, 2));
-        var apiUpdateNeeded = !utils.matchObjects(portalApi.config.api, kongApi.api);
+        const apiUpdateNeeded = !utils.matchObjects(portalApi.config.api, kongApi.api);
 
         if (apiUpdateNeeded) {
             debug("API '" + portalApi.name + "' does not match.");
@@ -142,7 +142,7 @@ kong.deleteKongApis = function (app, deleteList, done) {
     // Each item in deleteList contains:
     // - kongApi
     async.eachSeries(deleteList, function (deleteItem, callback) {
-        var kongApiUrl = 'apis/' + deleteItem.kongApi.api.id;
+        const kongApiUrl = 'apis/' + deleteItem.kongApi.api.id;
         utils.kongDelete(app, kongApiUrl, callback);
     }, function (err) {
         if (err)
@@ -181,7 +181,7 @@ kong.updateKongPlugins = function (app, updateList, done) {
     // - kongApi: Kong's API representation (for ids)
     // - kongPlugin: Kong's Plugin representation (for ids)
     async.eachSeries(updateList, function (updateItem, callback) {
-        var kongPluginUrl = 'apis/' + updateItem.kongApi.api.id + '/plugins/' + updateItem.kongPlugin.id;
+        const kongPluginUrl = 'apis/' + updateItem.kongApi.api.id + '/plugins/' + updateItem.kongPlugin.id;
         utils.kongPatch(app, kongPluginUrl, updateItem.portalPlugin, callback);
     }, function (err) {
         if (err)
@@ -199,7 +199,7 @@ kong.deleteKongPlugins = function (app, deleteList, done) {
     // - kongApi: Kong's API representation (for ids)
     // - kongPlugin: Kong's Plugin representation (for ids)
     async.eachSeries(deleteList, function (deleteItem, callback) {
-        var kongPluginUrl = 'apis/' + deleteItem.kongApi.api.id + '/plugins/' + deleteItem.kongPlugin.id;
+        const kongPluginUrl = 'apis/' + deleteItem.kongApi.api.id + '/plugins/' + deleteItem.kongPlugin.id;
         utils.kongDelete(app, kongPluginUrl, callback);
     }, function (err) {
         if (err)
@@ -250,8 +250,8 @@ kong.getKongConsumers = function (app, portalConsumers, callback) {
     debug('getKongConsumers()');
     async.mapLimit(
         portalConsumers,
-        MAX_PARALLEL_CALLS, 
-        (portalConsumer, callback) => getKongConsumerInfo(app, portalConsumer, callback), 
+        MAX_PARALLEL_CALLS,
+        (portalConsumer, callback) => getKongConsumerInfo(app, portalConsumer, callback),
         function (err, results) {
             if (err) {
                 console.error(err);
@@ -283,11 +283,11 @@ function getKongConsumerInfo(app, portalConsumer, callback) {
     debug('getKongConsumerInfo() for ' + portalConsumer.consumer.username);
     async.waterfall([
         callback => getKongConsumer(app, portalConsumer.consumer.username, callback),
-        (kongConsumer, callback) => enrichConsumerInfo(app, kongConsumer, callback) 
+        (kongConsumer, callback) => enrichConsumerInfo(app, kongConsumer, callback)
     ], function (err, consumerInfo) {
         if (err) {
-//            console.error(err);
-//            console.error(err.stack);
+            //            console.error(err);
+            //            console.error(err.stack);
             return callback(err);
         }
         // Note that the result may be null if the user is not present
@@ -323,7 +323,7 @@ function enrichConsumerInfo(app, kongConsumer, done) {
         debug('Not applicable, consumer not found.');
         return done(null, null);
     }
-    var consumerInfo = {
+    const consumerInfo = {
         consumer: kongConsumer,
         plugins: {},
         apiPlugins: []
@@ -363,10 +363,10 @@ function enrichConsumerPlugins(app, consumerInfo, done) {
 function extractApiName(consumerName) {
     debug('extractApiName()');
     // consumer names are like this: portal-application-name$api-name
-    var dollarIndex = consumerName.indexOf('$');
+    const dollarIndex = consumerName.indexOf('$');
     if (dollarIndex >= 0)
         return consumerName.substring(dollarIndex + 1);
-    var atIndex = consumerName.indexOf('@');
+    const atIndex = consumerName.indexOf('@');
     if (atIndex >= 0)
         return 'portal-api-internal';
     return null;
@@ -374,7 +374,7 @@ function extractApiName(consumerName) {
 
 kong.enrichConsumerApiPlugins = function (app, consumerInfo, /* optional */apiId, done) {
     debug('enrichConsumerApiPlugins');
-    var consumerId = consumerInfo.consumer.id;
+    const consumerId = consumerInfo.consumer.id;
     // Pass null for apiId if you want to extract it from the consumer's username
     let apiName = apiId;
     if (!apiId)
@@ -402,14 +402,14 @@ function addKongConsumerApiPlugin(app, portalConsumer, consumerId, portalApiPlug
     debug('addKongConsumerApiPlugin()');
     portalApiPlugin.consumer_id = consumerId;
     // Uargh
-    var apiName = extractApiName(portalConsumer.consumer.username);
+    const apiName = extractApiName(portalConsumer.consumer.username);
     utils.kongPost(app, 'apis/' + apiName + '/plugins', portalApiPlugin, done);
 }
 
 function deleteKongConsumerApiPlugin(app, kongConsumer, kongApiPlugin, done) {
     debug('deleteKongConsumerApiPlugin()');
     // This comes from Kong
-    var deleteUrl = 'apis/' + kongApiPlugin.api_id + '/plugins/' + kongApiPlugin.id;
+    const deleteUrl = 'apis/' + kongApiPlugin.api_id + '/plugins/' + kongApiPlugin.id;
     utils.kongDelete(app, deleteUrl, done);
 }
 
@@ -460,7 +460,7 @@ function patchKongConsumerApiPlugin(app, portalConsumer, kongConsumer, portalApi
     // Delete and re-add to make sure we don't have dangling properties
     async.series([
         callback => deleteKongConsumerApiPlugin(app, kongConsumer, kongApiPlugin, callback),
-        callback => addKongConsumerApiPlugin(app, portalConsumer, kongConsumer.consumer.id, portalApiPlugin, callback)     
+        callback => addKongConsumerApiPlugin(app, portalConsumer, kongConsumer.consumer.id, portalApiPlugin, callback)
     ], function (err) {
         if (err)
             return done(err);
@@ -474,19 +474,19 @@ function addKongConsumer(app, addItem, done) {
     utils.kongPost(app, 'consumers', addItem.portalConsumer.consumer, function (err, apiResponse) {
         if (err)
             return done(err);
-        var consumerId = apiResponse.id;
+        const consumerId = apiResponse.id;
 
-        var pluginNames = [];
-        for (var pluginName in addItem.portalConsumer.plugins)
+        const pluginNames = [];
+        for (let pluginName in addItem.portalConsumer.plugins)
             pluginNames.push(pluginName);
 
-        var apiPlugins = addItem.portalConsumer.apiPlugins; // Array []
+        const apiPlugins = addItem.portalConsumer.apiPlugins; // Array []
 
         async.series([
             function (pluginsCallback) {
                 // First the auth/consumer plugins
                 async.eachSeries(pluginNames, function (pluginName, callback) {
-                    var pluginInfo = addItem.portalConsumer.plugins[pluginName];
+                    const pluginInfo = addItem.portalConsumer.plugins[pluginName];
 
                     addKongConsumerPlugin(app, consumerId, pluginName, pluginInfo, callback);
                 }, function (err2) {
@@ -650,7 +650,7 @@ kong.deleteConsumerWithUsername = function (app, username, callback) {
             return callback(err);
         // Gracefully accept if already deleted
         if (consumerList.total <= 0) {
-            console.error('Could not find user with username ' +  username + ', cannot delete');
+            console.error('Could not find user with username ' + username + ', cannot delete');
             return callback(null);
         }
         // This should be just one call, but the consumer is in an array, so this does not hurt.

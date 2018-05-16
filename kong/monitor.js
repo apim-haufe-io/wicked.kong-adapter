@@ -2,7 +2,7 @@
 
 const wicked = require('wicked-sdk');
 const async = require('async');
-const debug = require('debug')('kong-adapter:monitor');
+const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:monitor');
 
 const utils = require('./utils');
 

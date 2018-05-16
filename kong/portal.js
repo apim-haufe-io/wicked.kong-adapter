@@ -1,10 +1,10 @@
 'use strict';
 
-var async = require('async');
-var debug = require('debug')('kong-adapter:portal');
-var utils = require('./utils');
+const async = require('async');
+const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:portal');
+const utils = require('./utils');
 
-var portal = function () { };
+const portal = function () { };
 
 const MAX_PARALLEL_CALLS = 10;
 
@@ -22,18 +22,18 @@ portal.getPortalApis = function (app, done) {
         const apiList = results.getApis;
         const authServerList = results.getAuthServers;
 
-        var portalHost = app.kongGlobals.network.portalUrl;
+        let portalHost = app.kongGlobals.network.portalUrl;
         if (!portalHost) {
             debug('portalUrl is not set in globals.json, defaulting to http://portal:3000');
             portalHost = 'http://portal:3000'; // Default
         }
         // Add the Swagger UI "API" for tunneling
-        var swaggerApi = require('../resources/swagger-ui.json');
+        const swaggerApi = require('../resources/swagger-ui.json');
         swaggerApi.config.api.upstream_url = portalHost + '/swagger-ui';
         apiList.apis.push(swaggerApi);
 
         // And a Ping end point for monitoring            
-        var pingApi = require('../resources/ping-api.json');
+        const pingApi = require('../resources/ping-api.json');
         pingApi.config.api.upstream_url = portalHost + '/ping';
         apiList.apis.push(pingApi);
 
@@ -107,8 +107,8 @@ function getAuthServerApis(app, callback) {
 
 function checkApiConfig(app, apiConfig) {
     if (apiConfig.plugins) {
-        for (var i = 0; i < apiConfig.plugins.length; ++i) {
-            var plugin = apiConfig.plugins[i];
+        for (let i = 0; i < apiConfig.plugins.length; ++i) {
+            const plugin = apiConfig.plugins[i];
             if (!plugin.name)
                 continue;
 
@@ -127,15 +127,15 @@ function checkRequestTransformerPlugin(app, apiConfig, plugin) {
         plugin.config.add &&
         plugin.config.add.headers) {
 
-        for (var i = 0; i < plugin.config.add.headers.length; ++i) {
+        for (let i = 0; i < plugin.config.add.headers.length; ++i) {
             if (plugin.config.add.headers[i] == '%%Forwarded') {
-                var prefix = apiConfig.api.uris;
-                var proto = app.kongGlobals.network.schema;
-                var rawHost = app.kongGlobals.network.apiHost;
-                var host;
-                var port;
+                const prefix = apiConfig.api.uris;
+                const proto = app.kongGlobals.network.schema;
+                const rawHost = app.kongGlobals.network.apiHost;
+                let host;
+                let port;
                 if (rawHost.indexOf(':') > 0) {
-                    var splitList = rawHost.split(':');
+                    const splitList = rawHost.split(':');
                     host = splitList[0];
                     port = splitList[1];
                 } else {
@@ -269,7 +269,7 @@ function enrichApplications(app, applicationList, apiPlans, done) {
             return done(err);
 
         const consumerList = [];
-        for (var resultIndex = 0; resultIndex < results.length; ++resultIndex) {
+        for (let resultIndex = 0; resultIndex < results.length; ++resultIndex) {
             const appInfo = results[resultIndex].application;
             const appSubsInfo = results[resultIndex].subscriptions;
             for (let subsIndex = 0; subsIndex < appSubsInfo.length; ++subsIndex) {
@@ -340,8 +340,8 @@ function getPlanById(apiPlans, planId) {
 
 function injectAuthPlugins(app, apiList) {
     debug('injectAuthPlugins()');
-    for (var i = 0; i < apiList.apis.length; ++i) {
-        var thisApi = apiList.apis[i];
+    for (let i = 0; i < apiList.apis.length; ++i) {
+        const thisApi = apiList.apis[i];
         if (!thisApi.auth ||
             "none" == thisApi.auth)
             continue;
@@ -358,11 +358,11 @@ function injectKeyAuth(app, api) {
     debug('injectKeyAuth()');
     if (!api.config.plugins)
         api.config.plugins = [];
-    var plugins = api.config.plugins;
-    var keyAuthPlugin = plugins.find(function (plugin) { return plugin.name == "key-auth"; });
+    const plugins = api.config.plugins;
+    const keyAuthPlugin = plugins.find(function (plugin) { return plugin.name == "key-auth"; });
     if (keyAuthPlugin)
         throw new Error("If you use 'key-auth' in the apis.json, you must not provide a 'key-auth' plugin yourself. Remove it and retry.");
-    var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
+    const aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
     if (aclPlugin)
         throw new Error("If you use 'key-auth' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
     plugins.push({
@@ -387,12 +387,12 @@ function injectOAuth2Auth(app, api) {
     debug('injectImplicitAuth()');
     if (!api.config.plugins)
         api.config.plugins = [];
-    var plugins = api.config.plugins;
+    const plugins = api.config.plugins;
     //console.log(JSON.stringify(plugins, null, 2));
-    var oauth2Plugin = plugins.find(function (plugin) { return plugin.name == "oauth2"; });
+    const oauth2Plugin = plugins.find(function (plugin) { return plugin.name == "oauth2"; });
     if (oauth2Plugin)
         throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'oauth2' plugin yourself. Remove it and retry.");
-    var aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
+    const aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
     if (aclPlugin)
         throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
 

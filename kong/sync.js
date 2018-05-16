@@ -1,13 +1,13 @@
 'use strict';
 /*jshint loopfunc: true */
 
-var async = require('async');
-var debug = require('debug')('kong-adapter:sync');
-var kong = require('./kong');
-var portal = require('./portal');
-var utils = require('./utils');
+const async = require('async');
+const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:sync');
+const kong = require('./kong');
+const portal = require('./portal');
+const utils = require('./utils');
 
-var sync = function () { };
+const sync = function () { };
 
 const MAX_ASYNC_CALLS = 10;
 
@@ -21,10 +21,10 @@ sync.syncApis = function (app, done) {
     }, function (err, results) {
         if (err)
             return done(err);
-        var portalApis = results.portalApis;
-        var kongApis = results.kongApis;
+        const portalApis = results.portalApis;
+        const kongApis = results.kongApis;
 
-        var todoLists = assembleApiTodoLists(portalApis, kongApis);
+        const todoLists = assembleApiTodoLists(portalApis, kongApis);
         debug('Infos on sync APIs todo list:');
         debug('  add items: ' + todoLists.addList.length);
         debug('  update items: ' + todoLists.updateList.length);
@@ -53,7 +53,7 @@ sync.syncApis = function (app, done) {
 
 sync.syncPlugins = function (app, portalApi, kongApi, done) {
     debug('syncPlugins()');
-    var todoLists = assemblePluginTodoLists(app, portalApi, kongApi);
+    const todoLists = assemblePluginTodoLists(app, portalApi, kongApi);
     //debug(utils.getText(todoLists));
     debug('Infos on sync API Plugins todo list:');
     debug('  add items: ' + todoLists.addList.length);
@@ -163,7 +163,7 @@ function syncConsumers(app, portalConsumers, done) {
         }
 
         debug('syncConsumers(): Creating Todo lists.');
-        var todoLists = assembleConsumerTodoLists(portalConsumers, kongConsumers);
+        const todoLists = assembleConsumerTodoLists(portalConsumers, kongConsumers);
         debug('Infos on sync consumers todo list:');
         debug('  add items: ' + todoLists.addList.length);
         debug('  update items: ' + todoLists.updateList.length);
@@ -191,7 +191,7 @@ function syncConsumers(app, portalConsumers, done) {
 
 sync.syncConsumerApiPlugins = function (app, portalConsumer, kongConsumer, done) {
     debug('syncConsumerApiPlugins()');
-    var todoLists = assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer);
+    const todoLists = assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer);
 
     async.series([
         function (callback) {
@@ -249,7 +249,7 @@ function assembleApiTodoLists(portalApis, kongApis) {
 
     // Now do the mop up, clean up APIs in Kong but not in the Portal;
     // these we want to delete.
-    for (var i = 0; i < kongApis.apis.length; ++i) {
+    for (let i = 0; i < kongApis.apis.length; ++i) {
         let kongApi = kongApis.apis[i];
         if (!handledKongApis[kongApi.api.name]) {
             debug('API ' + kongApi.api.name + ' not found in portal definition, will delete.');
@@ -266,18 +266,18 @@ function assembleApiTodoLists(portalApis, kongApis) {
     };
 }
 function shouldIgnore(app, name) {
-    const ignoreList = app.kongGlobals ? (app.kongGlobals.kongAdapter ? (app.kongGlobals.kongAdapter.ignoreList ? app.kongGlobals.kongAdapter.ignoreList : [] ) : []) : [];
+    const ignoreList = app.kongGlobals ? (app.kongGlobals.kongAdapter ? (app.kongGlobals.kongAdapter.ignoreList ? app.kongGlobals.kongAdapter.ignoreList : []) : []) : [];
     const useKongAdaptor = app.kongGlobals ? (app.kongGlobals.kongAdapter ? (app.kongGlobals.kongAdapter.useKongAdapter ? app.kongGlobals.kongAdapter.useKongAdapter : false) : false) : false;
 
     if (!useKongAdaptor) {
-        return false
+        return false;
     }
-    var list = ignoreList ? ignoreList : []
-    if(! name){
+    const list = ignoreList ? ignoreList : [];
+    if (!name) {
         return false;
     }
     for (let i = 0; i < list.length; ++i) {
-        if( list[i] === name) {
+        if (list[i] === name) {
             return true;
         }
     }
@@ -289,7 +289,7 @@ function assemblePluginTodoLists(app, portalApi, kongApi) {
     const updateList = [];
     const deleteList = [];
 
-    var handledKongPlugins = {};
+    const handledKongPlugins = {};
     for (let i = 0; i < portalApi.config.plugins.length; ++i) {
         let portalPlugin = portalApi.config.plugins[i];
         let kongPluginIndex = utils.getIndexBy(kongApi.plugins, function (plugin) { return plugin.name == portalPlugin.name; });
@@ -303,12 +303,12 @@ function assemblePluginTodoLists(app, portalApi, kongApi) {
             let kongPlugin = kongApi.plugins[kongPluginIndex];
             if (!utils.matchObjects(portalPlugin, kongPlugin) && !shouldIgnore(app, kongPlugin.name)) {
                 updateList.push(
-                {
-                    portalApi: portalApi,
-                    portalPlugin: portalPlugin,
-                    kongApi: kongApi,
-                    kongPlugin: kongPlugin
-                });
+                    {
+                        portalApi: portalApi,
+                        portalPlugin: portalPlugin,
+                        kongApi: kongApi,
+                        kongPlugin: kongPlugin
+                    });
             } // Else: Matches, all is good
             handledKongPlugins[kongPlugin.name] = true;
         }
@@ -321,7 +321,7 @@ function assemblePluginTodoLists(app, portalApi, kongApi) {
             deleteList.push({
                 kongApi: kongApi,
                 kongPlugin: kongPlugin
-            });       
+            });
         }
     }
 
@@ -338,8 +338,8 @@ function assembleConsumerTodoLists(portalConsumers, kongConsumers) {
     const updateList = [];
     const deleteList = [];
 
-    var handledKongConsumers = {};
-    for (var i = 0; i < portalConsumers.length; ++i) {
+    const handledKongConsumers = {};
+    for (let i = 0; i < portalConsumers.length; ++i) {
         let portalConsumer = portalConsumers[i];
         let kongConsumer = kongConsumers.find(function (kongConsumer) { return portalConsumer.consumer.username == kongConsumer.consumer.username; });
         if (!kongConsumer) {

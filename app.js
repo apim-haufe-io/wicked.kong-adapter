@@ -1,16 +1,16 @@
 'use strict';
 
-var express = require('express');
-var path = require('path');
-var logger = require('morgan');
-var bodyParser = require('body-parser');
-var async = require('async');
-var debug = require('debug')('kong-adapter:app');
-var correlationIdHandler = require('wicked-sdk').correlationIdHandler();
-var kongMain = require('./kong/main');
-var utils = require('./kong/utils');
+const express = require('express');
+const path = require('path');
+const logger = require('morgan');
+const bodyParser = require('body-parser');
+const async = require('async');
+const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:app');
+const correlationIdHandler = require('wicked-sdk').correlationIdHandler();
+const kongMain = require('./kong/main');
+const utils = require('./kong/utils');
 
-var app = express();
+const app = express();
 app.initialized = false;
 app.kongAvailable = false;
 app.apiAvailable = false;

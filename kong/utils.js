@@ -1,13 +1,13 @@
 'use strict';
 
-var request = require('request');
-var debug = require('debug')('kong-adapter:utils');
-var crypto = require('crypto');
-var wicked = require('wicked-sdk');
-var fs = require('fs');
-var path = require('path');
+const request = require('request');
+const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:utils');
+const crypto = require('crypto');
+const wicked = require('wicked-sdk');
+const fs = require('fs');
+const path = require('path');
 
-var utils = function () { };
+const utils = function () { };
 
 utils.getUtc = function () {
     return Math.floor((new Date()).getTime() / 1000);
@@ -37,7 +37,7 @@ utils.clone = function (ob) {
 };
 
 utils.getIndexBy = function (anArray, predicate) {
-    for (var i = 0; i < anArray.length; ++i) {
+    for (let i = 0; i < anArray.length; ++i) {
         if (predicate(anArray[i]))
             return i;
     }
@@ -47,7 +47,7 @@ utils.getIndexBy = function (anArray, predicate) {
 // Check for left side inclusion in right side, NOT vice versa
 utils.matchObjects = function (apiObject, kongObject) {
     debug('matchObjects()');
-    var returnValue = matchObjectsInternal(apiObject, kongObject);
+    const returnValue = matchObjectsInternal(apiObject, kongObject);
     if (!returnValue) {
         debug(' - objects do not match.');
         debug('apiObject: ' + JSON.stringify(apiObject, null, 2));
@@ -189,8 +189,8 @@ function kongAction(app, method, url, body, expectedStatusCode, callback) {
     }
 
     // Now do our thing
-    var kongUrl = app.get('kong_url');
-    var methodBody = {
+    const kongUrl = app.get('kong_url');
+    const methodBody = {
         method: method,
         url: kongUrl + url
     };
@@ -269,7 +269,7 @@ function internalGetPlan(plans, planId, callback) {
 }
 
 utils.findWithName = function (someArray, name) {
-    for (var i = 0; i < someArray.length; ++i) {
+    for (let i = 0; i < someArray.length; ++i) {
         if (someArray[i].name === name)
             return someArray[i];
     }
