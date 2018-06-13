@@ -216,7 +216,7 @@ function getAllAppConsumers(app, callback) {
         if (err)
             return callback(err);
 
-        const applicationList = results.applicationList;
+        const applicationList = results.applicationList.items;
         const apiPlans = results.apiPlans;
 
         enrichApplications(app, applicationList, apiPlans, callback);
