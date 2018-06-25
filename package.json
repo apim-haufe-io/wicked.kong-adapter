@@ -19,6 +19,6 @@
   },
   "name": "portal-kong-adapter",
   "config": {
-    "kongversion": "0.11.2"
+    "kongversion": "0.13.1"
   }
 }
