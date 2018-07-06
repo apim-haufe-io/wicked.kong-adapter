@@ -445,10 +445,4 @@ function injectOAuth2Auth(app, api) {
     });
 }
 
-function isInternalApiEnabled(app) {
-    return (app.kongGlobals.api &&
-        app.kongGlobals.api.portal &&
-        app.kongGlobals.api.portal.enableApi);
-}
-
 module.exports = portal;

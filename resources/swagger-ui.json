@@ -6,7 +6,7 @@
     "api": {
       "upstream_url": "(filled dynamically)/swagger-ui",
       "uris": ["/swagger-ui"],
-      "preserve_host": false,
+      "preserve_host": true,
       "strip_uri": true,
       "name": "swagger-ui-portal"
     },
