@@ -126,7 +126,7 @@ function getActualApis(callback) {
         // Make the scope lists Kong compatible (wicked has more info than Kong)
         for (let i = 0; i < apiList.apis.length; ++i) {
             const api = apiList.apis[i] as any;
-            if (api.settings) {
+            if (api.auth === 'oauth2' && api.settings) {
                 if (api.settings.scopes) {
                     const newScopes = [];
                     for (let scope in api.settings.scopes) {
@@ -134,6 +134,12 @@ function getActualApis(callback) {
                         newScopes.push(scope);
                     }
                     api.settings.scopes = newScopes;
+                } else {
+                    api.settings.scopes = [];
+                }
+                // Now also add the groups as scopes.
+                for (let g = 0; g < groups.length; ++g) {
+                    api.settings.scopes.push(`wicked:${groups[g].id}`);
                 }
             }
         }
