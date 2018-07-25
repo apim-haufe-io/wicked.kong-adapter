@@ -5,20 +5,22 @@ import * as utils from './utils';
 
 const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:sync');
+import * as wicked from 'wicked-sdk';
 
 import { kong } from './kong';
 import { portal } from './portal';
+import { ErrorCallback } from 'wicked-sdk';
 
 const MAX_ASYNC_CALLS = 10;
 
 // ========= INTERFACE FUNCTIONS ========
 
 export const sync = {
-    syncApis: function (app, done) {
+    syncApis: function (done: ErrorCallback) {
         debug('syncApis()');
         async.parallel({
-            portalApis: function (callback) { portal.getPortalApis(app, callback); },
-            kongApis: function (callback) { kong.getKongApis(app, callback); }
+            portalApis: function (callback) { portal.getPortalApis(callback); },
+            kongApis: function (callback) { kong.getKongApis(callback); }
         }, function (err, results) {
             if (err)
                 return done(err);
@@ -35,13 +37,13 @@ export const sync = {
             async.series({
                 updateApis: function (callback) {
                     // Will call syncPlugins
-                    kong.updateKongApis(app, sync, todoLists.updateList, callback);
+                    kong.updateKongApis(sync, todoLists.updateList, callback);
                 },
                 deleteApis: function (callback) {
-                    kong.deleteKongApis(app, todoLists.deleteList, callback);
+                    kong.deleteKongApis(todoLists.deleteList, callback);
                 },
                 addApis: function (callback) {
-                    kong.addKongApis(app, todoLists.addList, callback);
+                    kong.addKongApis(todoLists.addList, callback);
                 }
             }, function (err) {
                 if (err)
@@ -52,9 +54,9 @@ export const sync = {
         });
     },
 
-    syncPlugins: function (app, portalApi, kongApi, done) {
+    syncPlugins: function (portalApi, kongApi, done) {
         debug('syncPlugins()');
-        const todoLists = assemblePluginTodoLists(app, portalApi, kongApi);
+        const todoLists = assemblePluginTodoLists(portalApi, kongApi);
         //debug(utils.getText(todoLists));
         debug('Infos on sync API Plugins todo list:');
         debug('  add items: ' + todoLists.addList.length);
@@ -70,13 +72,13 @@ export const sync = {
 
         async.series({
             addPlugins: function (callback) {
-                kong.addKongPlugins(app, todoLists.addList, callback);
+                kong.addKongPlugins(todoLists.addList, callback);
             },
             updatePlugins: function (callback) {
-                kong.updateKongPlugins(app, todoLists.updateList, callback);
+                kong.updateKongPlugins(todoLists.updateList, callback);
             },
             deletePlugins: function (callback) {
-                kong.deleteKongPlugins(app, todoLists.deleteList, callback);
+                kong.deleteKongPlugins(todoLists.deleteList, callback);
             }
         }, function (err) {
             if (err)
@@ -88,20 +90,20 @@ export const sync = {
 
     // =========== CONSUMERS ============
 
-    syncAllConsumers: function (app, callback) {
+    syncAllConsumers: function (callback) {
         debug('syncAllConsumers()');
-        portal.getAllPortalConsumers(app, function (err, portalConsumers) {
+        portal.getAllPortalConsumers(function (err, portalConsumers) {
             if (err)
                 return callback(err);
-            syncConsumers(app, portalConsumers, callback);
+            syncConsumers(portalConsumers, callback);
         });
     },
 
-    syncAppConsumers: function (app, appId, callback) {
+    syncAppConsumers: function (appId, callback) {
         debug('syncAppConsumers(): ' + appId);
         async.waterfall([
-            callback => portal.getAppConsumers(app, appId, callback), // One app may result in multiple consumers (one per subscription)
-            (appConsumers, callback) => syncConsumers(app, appConsumers, callback)
+            callback => portal.getAppConsumers(appId, callback), // One app may result in multiple consumers (one per subscription)
+            (appConsumers, callback) => syncConsumers(appConsumers, callback)
         ], function (err) {
             if (err)
                 return callback(err);
@@ -119,10 +121,10 @@ export const sync = {
     
      See below what needs to be in the subscriptionList.
      */
-    deleteAppConsumers: function (app, appId, subscriptionList, callback) {
+    deleteAppConsumers: function (appId, subscriptionList, callback) {
         debug('deleteAppConsumers(): ' + appId);
         async.mapLimit(subscriptionList, MAX_ASYNC_CALLS, function (subsInfo, callback) {
-            sync.deleteAppSubscriptionConsumer(app, subsInfo, callback);
+            sync.deleteAppSubscriptionConsumer(subsInfo, callback);
         }, function (err, results) {
             if (err)
                 return callback(err);
@@ -142,24 +144,24 @@ export const sync = {
          userId: <...> // optional
      }
      */
-    deleteAppSubscriptionConsumer: function (app, subsInfo, callback) {
+    deleteAppSubscriptionConsumer: function (subsInfo, callback) {
         debug('deleteAppSubscriptionConsumer() appId: ' + subsInfo.application + ', api: ' + subsInfo.api);
-        kong.deleteConsumerWithUsername(app, utils.makeUserName(subsInfo.application, subsInfo.api), callback);
+        kong.deleteConsumerWithUsername(utils.makeUserName(subsInfo.application, subsInfo.api), callback);
     },
 
-    syncConsumerApiPlugins: function (app, portalConsumer, kongConsumer, done) {
+    syncConsumerApiPlugins: function (portalConsumer, kongConsumer, done) {
         debug('syncConsumerApiPlugins()');
-        const todoLists = assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer);
+        const todoLists = assembleConsumerApiPluginsTodoLists(portalConsumer, kongConsumer);
 
         async.series([
             function (callback) {
-                kong.addKongConsumerApiPlugins(app, todoLists.addList, kongConsumer.consumer.id, callback);
+                kong.addKongConsumerApiPlugins(todoLists.addList, kongConsumer.consumer.id, callback);
             },
             function (callback) {
-                kong.patchKongConsumerApiPlugins(app, todoLists.patchList, callback);
+                kong.patchKongConsumerApiPlugins(todoLists.patchList, callback);
             },
             function (callback) {
-                kong.deleteKongConsumerApiPlugins(app, todoLists.deleteList, callback);
+                kong.deleteKongConsumerApiPlugins(todoLists.deleteList, callback);
             }
         ], function (err) {
             if (err)
@@ -169,13 +171,13 @@ export const sync = {
         });
     },
 
-    wipeAllConsumers: function (app, done) {
+    wipeAllConsumers: function (done) {
         debug('wipeAllConsumers()');
-        kong.wipeAllConsumers(app, done);
+        kong.wipeAllConsumers(done);
     }
 };
 
-function syncConsumers(app, portalConsumers, done) {
+function syncConsumers(portalConsumers, done) {
     if (portalConsumers.length === 0) {
         debug('syncConsumers() - nothing to do (empty consumer list).');
         setTimeout(done, 0);
@@ -183,7 +185,7 @@ function syncConsumers(app, portalConsumers, done) {
     }
     debug('syncConsumers()');
     // Get the corresponding Kong consumers
-    kong.getKongConsumers(app, portalConsumers, function (err, resultConsumers) {
+    kong.getKongConsumers(portalConsumers, function (err, resultConsumers) {
         if (err)
             return done(err);
         const kongConsumers = [];
@@ -200,15 +202,15 @@ function syncConsumers(app, portalConsumers, done) {
         debug('  delete items: ' + todoLists.deleteList.length);
 
         async.series({
-            addConsumers: callback => kong.addKongConsumers(app, todoLists.addList, callback),
-            updateConsumers: callback => kong.updateKongConsumers(app, sync, todoLists.updateList, callback), // Will call syncConsumerApiPlugins
+            addConsumers: callback => kong.addKongConsumers(todoLists.addList, callback),
+            updateConsumers: callback => kong.updateKongConsumers(sync, todoLists.updateList, callback), // Will call syncConsumerApiPlugins
             deleteConsumers: function (callback) {
                 if (todoLists.deleteList.length > 0) {
                     console.error(todoLists.deleteList);
                     throw new Error('deleteConsumer in sync.syncConsumers() must not be called anymore.');
                 }
                 setTimeout(callback, 0);
-                //kong.deleteKongConsumers(app, todoLists.deleteList, callback);
+                //kong.deleteKongConsumers(todoLists.deleteList, callback);
             }
         }, function (err, results) {
             if (err)
@@ -269,26 +271,24 @@ function assembleApiTodoLists(portalApis, kongApis) {
     };
 }
 
-function shouldIgnore(app, name) {
-    const ignoreList = app.kongGlobals ? (app.kongGlobals.kongAdapter ? (app.kongGlobals.kongAdapter.ignoreList ? app.kongGlobals.kongAdapter.ignoreList : []) : []) : [];
-    const useKongAdaptor = app.kongGlobals ? (app.kongGlobals.kongAdapter ? (app.kongGlobals.kongAdapter.useKongAdapter ? app.kongGlobals.kongAdapter.useKongAdapter : false) : false) : false;
+function shouldIgnore(name) {
+    const ignoreList = wicked.getKongAdapterIgnoreList();
 
-    if (!useKongAdaptor) {
+    if (ignoreList.length === 0) {
         return false;
     }
-    const list = ignoreList ? ignoreList : [];
     if (!name) {
         return false;
     }
-    for (let i = 0; i < list.length; ++i) {
-        if (list[i] === name) {
+    for (let i = 0; i < ignoreList.length; ++i) {
+        if (ignoreList[i] === name) {
             return true;
         }
     }
     return false;
 }
 
-function assemblePluginTodoLists(app, portalApi, kongApi) {
+function assemblePluginTodoLists(portalApi, kongApi) {
     debug('assemblePluginTodoLists()');
     const addList = [];
     const updateList = [];
@@ -306,7 +306,7 @@ function assemblePluginTodoLists(app, portalApi, kongApi) {
             });
         } else {
             let kongPlugin = kongApi.plugins[kongPluginIndex];
-            if (!utils.matchObjects(portalPlugin, kongPlugin) && !shouldIgnore(app, kongPlugin.name)) {
+            if (!utils.matchObjects(portalPlugin, kongPlugin) && !shouldIgnore(kongPlugin.name)) {
                 updateList.push(
                     {
                         portalApi: portalApi,
@@ -322,7 +322,7 @@ function assemblePluginTodoLists(app, portalApi, kongApi) {
     // Mop up needed?
     for (let i = 0; i < kongApi.plugins.length; ++i) {
         let kongPlugin = kongApi.plugins[i];
-        if (!handledKongPlugins[kongPlugin.name] && !shouldIgnore(app, kongPlugin.name)) {
+        if (!handledKongPlugins[kongPlugin.name] && !shouldIgnore(kongPlugin.name)) {
             deleteList.push({
                 kongApi: kongApi,
                 kongPlugin: kongPlugin
@@ -385,7 +385,7 @@ function assembleConsumerTodoLists(portalConsumers, kongConsumers) {
     };
 }
 
-function assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer) {
+function assembleConsumerApiPluginsTodoLists(portalConsumer, kongConsumer) {
     debug('assembleConsumerApiPluginsTodoLists()');
     const addList = [];
     const patchList = [];
@@ -403,7 +403,7 @@ function assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer) 
         }
 
         if (kongApiPlugin &&
-            !utils.matchObjects(portalApiPlugin, kongApiPlugin) && !shouldIgnore(app, kongApiPlugin.name)) {
+            !utils.matchObjects(portalApiPlugin, kongApiPlugin) && !shouldIgnore(kongApiPlugin.name)) {
             patchList.push({
                 portalConsumer: portalConsumer,
                 portalApiPlugin: portalApiPlugin,
@@ -418,7 +418,7 @@ function assembleConsumerApiPluginsTodoLists(app, portalConsumer, kongConsumer) 
     // Mop up
     for (let i = 0; i < kongConsumer.apiPlugins.length; ++i) {
         let kongApiPlugin = kongConsumer.apiPlugins[i];
-        if (!handledPlugins[kongApiPlugin.name] && !shouldIgnore(app, kongApiPlugin.name)) {
+        if (!handledPlugins[kongApiPlugin.name] && !shouldIgnore(kongApiPlugin.name)) {
             deleteList.push({
                 kongConsumer: kongConsumer,
                 kongApiPlugin: kongApiPlugin

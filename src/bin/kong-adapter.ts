@@ -45,7 +45,7 @@ async.series([
     callback => wicked.initMachineUser('kong-adapter', callback),
     callback => wicked.awaitUrl(wicked.getInternalKongAdminUrl(), null, callback),
     callback => utils.initGroups(callback),
-    callback => kongMonitor.init(app, callback)
+    callback => kongMonitor.init(callback)
 ], function (err) {
     debug('Kong and API await finished.');
     if (err) {
@@ -54,7 +54,7 @@ async.series([
     }
 
     // Jot down a couple of URLs
-    app.set('my_url', wicked.getInternalKongAdapterUrl());
+    utils.setMyUrl(wicked.getInternalKongAdapterUrl());
 
     // Now let's register with the portal API; we'll use the standard Admin
     const initOptions = {
@@ -62,7 +62,7 @@ async.series([
         syncApis: true,
         syncConsumers: true
     };
-    kongMain.init(app, initOptions, function (err) {
+    kongMain.init(initOptions, function (err) {
         debug('kong.init() returned.');
         if (err) {
             debug('Could not initialize Kong adapter.');
@@ -72,7 +72,7 @@ async.series([
         // Graceful shutdown
         process.on('SIGINT', function () {
             debug("Gracefully shutting down.");
-            kongMain.deinit(app, function (err) {
+            kongMain.deinit(function (err) {
                 process.exit();
             });
         });

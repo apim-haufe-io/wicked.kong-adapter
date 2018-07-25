@@ -3,8 +3,10 @@
 const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:main');
 
+import * as wicked from 'wicked-sdk';
 import * as utils from './utils';
 import { sync } from './sync';
+import { WickedEvent, WickedWebhookListener, WickedGlobals } from 'wicked-sdk';
 
 const MAX_ASYNC_CALLS = 10;
 
@@ -12,13 +14,13 @@ const MAX_ASYNC_CALLS = 10;
 
 export const kongMain = {
 
-    init: function (app, options, done) {
+    init: function (options, done) {
         debug('init()');
         async.series({
             initGlobals: function (callback) {
                 if (options.initGlobals) {
                     debug('Calling initGlobals()');
-                    initGlobals(app, callback);
+                    registerWebhookListener(callback);
                 } else {
                     callback(null);
                 }
@@ -26,14 +28,14 @@ export const kongMain = {
             syncApis: function (callback) {
                 if (options.syncApis) {
                     debug('Calling sync.syncApis()');
-                    sync.syncApis(app, callback);
+                    sync.syncApis(callback);
                 } else {
                     callback(null);
                 }
             },
             processPendingEvents: function (callback) {
                 if (options.syncConsumers) {
-                    processPendingWebhooks(app, callback);
+                    processPendingWebhooks(callback);
                 } else {
                     callback(null);
                 }
@@ -41,7 +43,7 @@ export const kongMain = {
             syncConsumers: function (callback) {
                 if (options.syncConsumers) {
                     debug('Calling sync.syncConsumers()');
-                    sync.syncAllConsumers(app, callback);
+                    sync.syncAllConsumers(callback);
                 } else {
                     callback(null);
                 }
@@ -58,42 +60,42 @@ export const kongMain = {
         });
     },
 
-    resync: function (app, done) {
+    resync: function (done) {
         const initOptions = {
             syncApis: true,
             syncConsumers: true
         };
-        kongMain.init(app, initOptions, done);
-    },
-    
-    processWebhooks: function (app, webhookList, done) {
-        debug('processWebhooks()');
-        const onlyDelete = false;
-        async.eachSeries(webhookList, (webhookData, callback) => dispatchWebhookAction(app, webhookData, onlyDelete, callback), done);
+        kongMain.init(initOptions, done);
     },
 
-    deinit: function (app, done) {
+    processWebhooks: function (webhookList, done) {
+        debug('processWebhooks()');
+        const onlyDelete = false;
+        async.eachSeries(webhookList, (webhookData, callback) => dispatchWebhookAction(webhookData, onlyDelete, callback), done);
+    },
+
+    deinit: function (done) {
         // Don't do this; this can result in glitches in the database; let
         // the wicked API store our events until we return.
-        //utils.apiDelete(app, 'webhooks/listeners/kong-adapter', done);
+        //utils.apiDelete('webhooks/listeners/kong-adapter', done);
         setTimeout(done, 0);
     }
 };
 
 
-function processPendingWebhooks(app, done) {
+function processPendingWebhooks(done) {
     debug('processPendingWebhooks()');
-    utils.apiGet(app, 'webhooks/events/kong-adapter', function (err, pendingEvents) {
+    wicked.getWebhookEvents('kong-adapter', function (err, pendingEvents) {
         if (err)
             return done(err);
         const onlyDelete = true;
         if (!containsImportEvent(pendingEvents)) {
-            async.eachSeries(pendingEvents, (webhookData, callback) => dispatchWebhookAction(app, webhookData, onlyDelete, callback), done);
+            async.eachSeries(pendingEvents, (webhookData, callback) => dispatchWebhookAction(webhookData, onlyDelete, callback), done);
         } else {
             // we have seen an import since we last lived; wipe consumers, re-sync them, and acknowledge everything.
             async.series([
-                callback => doPostImport(app, callback),
-                callback => acknowledgeEvents(app, pendingEvents, callback)
+                callback => doPostImport(callback),
+                callback => acknowledgeEvents(pendingEvents, callback)
             ], done);
         }
     });
@@ -106,22 +108,22 @@ function containsImportEvent(eventList) {
     return !!importEvent;
 }
 
-function dispatchWebhookAction(app, webhookData, onlyDelete, callback) {
+function dispatchWebhookAction(webhookData, onlyDelete, callback) {
     debug('dispatchWebhookAction()');
     const action = webhookData.action;
     const entity = webhookData.entity;
     debug('action = ' + action + ', entity = ' + entity);
     let syncAction = null;
     if (entity === 'application' && (action === 'add' || action === 'update') && !onlyDelete)
-        syncAction = callback => syncAppConsumers(app, webhookData.data.applicationId, callback);
+        syncAction = callback => syncAppConsumers(webhookData.data.applicationId, callback);
     else if (entity === 'application' && action === 'delete')
-        syncAction = callback => deleteAppConsumers(app, webhookData.data.applicationId, webhookData.data.subscriptions, callback);
+        syncAction = callback => deleteAppConsumers(webhookData.data.applicationId, webhookData.data.subscriptions, callback);
     else if (entity === 'subscription' && (action === 'add' || action === 'update') && !onlyDelete)
-        syncAction = callback => syncAppConsumers(app, webhookData.data.applicationId, callback);
+        syncAction = callback => syncAppConsumers(webhookData.data.applicationId, callback);
     else if (entity === 'subscription' && action === 'delete')
-        syncAction = callback => deleteAppSubscriptionConsumer(app, webhookData.data, callback);
+        syncAction = callback => deleteAppSubscriptionConsumer(webhookData.data, callback);
     else if (entity === 'import') // Woooo!
-        syncAction = callback => doPostImport(app, callback);
+        syncAction = callback => doPostImport(callback);
 
     async.series([
         callback => {
@@ -129,7 +131,7 @@ function dispatchWebhookAction(app, webhookData, onlyDelete, callback) {
                 return syncAction(callback);
             return callback(null);
         },
-        callback => acknowledgeEvent(app, webhookData.id, callback)
+        callback => acknowledgeEvent(webhookData.id, callback)
     ], function (err) {
         if (err)
             return callback(err);
@@ -137,17 +139,17 @@ function dispatchWebhookAction(app, webhookData, onlyDelete, callback) {
     });
 }
 
-function syncAppConsumers(app, appId, callback) {
+function syncAppConsumers(appId, callback) {
     // Relay to sync
-    sync.syncAppConsumers(app, appId, callback);
+    sync.syncAppConsumers(appId, callback);
 }
 
-function deleteAppConsumers(app, appId, subscriptionList, callback) {
+function deleteAppConsumers(appId, subscriptionList, callback) {
     // Just relay
-    sync.deleteAppConsumers(app, appId, subscriptionList, callback);
+    sync.deleteAppConsumers(appId, subscriptionList, callback);
 }
 
-function deleteAppSubscriptionConsumer(app, webhookSubsInfo, callback) {
+function deleteAppSubscriptionConsumer(webhookSubsInfo, callback) {
     // The subsInfo in the webhook is a little different from the persisted ones.
     // We need to translate them.
     const subsInfo = {
@@ -157,55 +159,35 @@ function deleteAppSubscriptionConsumer(app, webhookSubsInfo, callback) {
         userId: webhookSubsInfo.userId,
         auth: webhookSubsInfo.auth
     };
-    sync.deleteAppSubscriptionConsumer(app, subsInfo, callback);
+    sync.deleteAppSubscriptionConsumer(subsInfo, callback);
 }
 
-function acknowledgeEvents(app, eventList, done) {
+function acknowledgeEvents(eventList: WickedEvent[], done) {
     debug('acknowledgeEvents()');
-    async.mapLimit(eventList, MAX_ASYNC_CALLS, (event, callback) => acknowledgeEvent(app, event.id, callback), done);
+    async.mapLimit(eventList, MAX_ASYNC_CALLS, (event, callback) => acknowledgeEvent(event.id, callback), done);
 }
 
-function acknowledgeEvent(app, eventId, callback) {
-    utils.apiDelete(app, 'webhooks/events/kong-adapter/' + eventId, callback);
+function acknowledgeEvent(eventId, callback) {
+    wicked.deleteWebhookEvent('kong-adapter', eventId, callback);
 }
 
-function doPostImport(app, done) {
+function doPostImport(done) {
     debug('doPostImport()');
     async.series([
-        callback => sync.wipeAllConsumers(app, callback),
-        callback => sync.syncAllConsumers(app, callback)
+        callback => sync.wipeAllConsumers(callback),
+        callback => sync.syncAllConsumers(callback)
     ], done);
 }
 
 // ====== INTERNALS =======
 
-function initGlobals(app, done) {
-    debug('initGlobals()');
-    const myUrl = app.get('my_url');
+function registerWebhookListener(done) {
+    debug('registerWebhookListener()');
+    const myUrl = utils.getMyUrl();
 
-    async.parallel({
-        registerWebhook: function (callback) {
-            const putPayload = {
-                id: 'kong-adapter',
-                url: myUrl
-            };
-            utils.apiPut(app, 'webhooks/listeners/kong-adapter', putPayload, callback);
-        },
-        getGlobals: function (callback) {
-            utils.apiGet(app, 'globals', function (err, kongGlobals) {
-                if (err) {
-                    return callback(err);
-                }
-                return callback(null, kongGlobals);
-            });
-        }
-    }, function (err, results) {
-        if (err) {
-            return done(err);
-        }
-
-        app.kongGlobals = results.getGlobals;
-
-        return done(null);
-    });
+    const putPayload: WickedWebhookListener = {
+        id: 'kong-adapter',
+        url: myUrl
+    };
+    wicked.upsertWebhookListener('kong-adapter', putPayload, done);
 }

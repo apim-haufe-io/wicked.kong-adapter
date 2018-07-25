@@ -1,23 +1,45 @@
-import { SyncStatistics } from "./types";
-
 'use strict';
 
 const request = require('request');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:utils');
 const crypto = require('crypto');
-const wicked = require('wicked-sdk');
+import * as wicked from 'wicked-sdk';
+
 const fs = require('fs');
 const path = require('path');
 
-export function getUtc() {
+import { SyncStatistics } from "./types";
+import { WickedGroupCollection, Callback, WickedApiPlanCollection, WickedApiPlan } from "wicked-sdk";
+
+export function getUtc(): number {
     return Math.floor((new Date()).getTime() / 1000);
 }
 
-export function createRandomId() {
+export function createRandomId(): string {
     return crypto.randomBytes(20).toString('hex');
 }
 
-export function getJson(ob) {
+let _kongUrl: string = null;
+export function setKongUrl(url: string): void {
+    _kongUrl = url;
+}
+
+export function getKongUrl(): string {
+    if (!_kongUrl)
+        throw new Error('utils.setKongUrl was never called, kong URL is yet unknown');
+    return _kongUrl;
+}
+
+let _myUrl: string = null;
+export function setMyUrl(url: string): void {
+    _myUrl = url;
+}
+
+export function getMyUrl(): string {
+    return _myUrl;
+}
+
+export function getJson(ob): object {
     if (typeof ob === "string") {
         if (ob === "")
             return null;
@@ -26,17 +48,17 @@ export function getJson(ob) {
     return ob;
 }
 
-export function getText(ob) {
+export function getText(ob): string {
     if (typeof ob === "string")
         return ob;
     return JSON.stringify(ob, null, 2);
 };
 
-export function clone(ob) {
+export function clone(ob): object {
     return JSON.parse(JSON.stringify(ob));
 };
 
-export function getIndexBy(anArray, predicate) {
+export function getIndexBy(anArray, predicate): number {
     for (let i = 0; i < anArray.length; ++i) {
         if (predicate(anArray[i]))
             return i;
@@ -88,26 +110,6 @@ function matchObjectsInternal(apiObject, kongObject) {
     return true;
 }
 
-export function apiGet(app, url, callback) {
-    debug('apiGet(): ' + url);
-    wicked.apiGet(url, callback);
-};
-
-export function apiGetAsUser(app, url, userId, callback) {
-    debug('apiGetAsUser(): ' + url + ', as ' + userId);
-    wicked.apiGet(url, userId, callback);
-};
-
-export function apiPut(app, url, body, callback) {
-    debug('apiPut() ' + url);
-    wicked.apiPut(url, body, callback);
-};
-
-export function apiDelete(app, url, callback) {
-    debug('apiDelete() ' + url);
-    wicked.apiDelete(url, callback);
-};
-
 let _kongAvailable = true; // Otherwise the first call will not succeed
 let _kongMessage = null;
 let _kongClusterStatus = null;
@@ -138,7 +140,7 @@ let _keepChangingActions = false;
  *
  * See also kongMain.resync() (the /resync end point).
 */
-export function resetStatistics(keepChangingActions) {
+export function resetStatistics(keepChangingActions): void {
     _statistics = defaultStatistics();
     if (keepChangingActions)
         _keepChangingActions = true;
@@ -164,7 +166,7 @@ export function getStatistics(): SyncStatistics {
  * Helper method to record Kong API action statistics, and possible also to record
  * a list of changing API calls for debugging purposes (integration tests).
  */
-function kongActionStat(method, url, body) {
+function kongActionStat(method, url, body): void {
     if (!_statistics[method])
         _statistics[method] = 0;
     _statistics[method]++;
@@ -178,7 +180,7 @@ function kongActionStat(method, url, body) {
     }
 }
 
-function kongAction(app, method, url, body, expectedStatusCode, callback) {
+function kongAction(method, url, body, expectedStatusCode, callback: Callback<any>): void {
     debug('kongAction(), ' + method + ', ' + url);
     kongActionStat(method, url, body);
 
@@ -190,7 +192,7 @@ function kongAction(app, method, url, body, expectedStatusCode, callback) {
     }
 
     // Now do our thing
-    const kongUrl = app.get('kong_url');
+    const kongUrl = getKongUrl();
     const methodBody: any = {
         method: method,
         url: kongUrl + url
@@ -222,36 +224,36 @@ function kongAction(app, method, url, body, expectedStatusCode, callback) {
     });
 }
 
-export function kongGet(app, url, callback) {
-    kongAction(app, 'GET', url, null, 200, callback);
+export function kongGet(url: string, callback: Callback<any>) {
+    kongAction('GET', url, null, 200, callback);
 };
 
-export function kongPost(app, url, body, callback) {
-    kongAction(app, 'POST', url, body, 201, callback);
+export function kongPost(url, body, callback) {
+    kongAction('POST', url, body, 201, callback);
 };
 
-export function kongDelete(app, url, callback) {
-    kongAction(app, 'DELETE', url, null, 204, callback);
+export function kongDelete(url, callback) {
+    kongAction('DELETE', url, null, 204, callback);
 };
 
-export function kongPatch(app, url, body, callback) {
-    kongAction(app, 'PATCH', url, body, 200, callback);
+export function kongPatch(url, body, callback) {
+    kongAction('PATCH', url, body, 200, callback);
 };
 
-export function getPlan(app, planId, callback) {
+export function getPlan(planId: string, callback: Callback<WickedApiPlan>) {
     debug('getPlan() - ' + planId);
-    getPlans(app, function (err, plans) {
+    getPlans(function (err, plans) {
         if (err)
             return callback(err);
         internalGetPlan(plans, planId, callback);
     });
 };
 
-let _plans = null;
-export function getPlans(app, callback) {
+let _plans: WickedApiPlanCollection = null;
+export function getPlans(callback: Callback<WickedApiPlanCollection>): void {
     debug('getPlans()');
     if (!_plans) {
-        apiGet(app, 'plans', function (err, results) {
+        wicked.getPlans(function (err, results) {
             if (err)
                 return callback(err);
             _plans = results;
@@ -262,15 +264,15 @@ export function getPlans(app, callback) {
     }
 };
 
-function internalGetPlan(plans, planId, callback) {
+function internalGetPlan(plans: WickedApiPlanCollection, planId, callback: Callback<WickedApiPlan>): void {
     const plan = plans.plans.find(p => p.id === planId);
     if (!plan)
         return callback(new Error('Unknown plan ID: ' + planId));
     return callback(null, plan);
 }
 
-let _groups = null;
-export function getGroups() {
+let _groups: WickedGroupCollection = null;
+export function getGroups(): WickedGroupCollection {
     debug(`getGroups()`);
     if (!_groups)
         throw new Error('utils: _groups is not initialized; before calling getGroups(), initGroups() must have been called.');
@@ -283,7 +285,7 @@ export function getGroups() {
  * 
  * @param callback 
  */
-export function initGroups(callback) {
+export function initGroups(callback: Callback<WickedGroupCollection>): void {
     debug(`initGroups()`);
     wicked.getGroups((err, groups) => {
         if (err)

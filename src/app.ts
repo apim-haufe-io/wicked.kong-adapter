@@ -41,7 +41,7 @@ app.post('/', function (req, res, next) {
     }
 
     req.app.processingWebhooks = true;
-    kongMain.processWebhooks(app, req.body, function (err) {
+    kongMain.processWebhooks(req.body, function (err) {
         req.app.processingWebhooks = false;
         if (err) {
             app.lastErr = err;
@@ -62,7 +62,7 @@ app.get('/ping', function (req, res, next) {
         message: 'Up and running',
         uptime: (utils.getUtc() - app._startupSeconds),
         healthy: 1,
-        pingUrl: app.get('my_url') + 'ping',
+        pingUrl: utils.getMyUrl() + 'ping',
         version: utils.getVersion(),
         gitLastCommit: utils.getGitLastCommit(),
         gitBranch: utils.getGitBranch(),
@@ -104,7 +104,7 @@ if (process.env.ALLOW_RESYNC) {
         debug('/resync');
         // Reset usage statistics and keep changing actions/non-matching objects
         utils.resetStatistics(true);
-        kongMain.resync(req.app, function (err) {
+        kongMain.resync(function (err) {
             // Retrieve the list of statistics, we will definitely return these,
             // disregarding of the success of the action.
             const stats = utils.getStatistics();

@@ -9,16 +9,16 @@ const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:
 import * as utils from './utils';
 
 export const kongMonitor = {
-    init: function (app, callback) {
+    init: function (callback) {
         debug('init()');
 
-        app.set('kong_url', wicked.getInternalKongAdminUrl());
+        utils.setKongUrl(wicked.getInternalKongAdminUrl());
 
-        pingKong(app, function (err) {
+        pingKong(function (err) {
             if (err)
                 return callback(err);
             // Set up Kong Monitor every ten seconds (retrieve version and cluster status)
-            setInterval(pingKong, 10000, app);
+            setInterval(pingKong, 10000);
 
             // OK, we're fine!
             callback(null);
@@ -26,8 +26,8 @@ export const kongMonitor = {
     },
 };
 
-function checkKongVersion(app, callback) {
-    utils.kongGet(app, '/', function (err, body) {
+function checkKongVersion(callback) {
+    utils.kongGet('/', function (err, body) {
         if (err)
             return callback(err);
         if (!body.version) {
@@ -43,8 +43,8 @@ function checkKongVersion(app, callback) {
     });
 };
 
-function checkKongCluster(app, callback) {
-    utils.kongGet(app, 'status', function (err, body) {
+function checkKongCluster(callback) {
+    utils.kongGet('status', function (err, body) {
         if (err)
             return callback(err);
         if (!body.database) {
@@ -55,12 +55,12 @@ function checkKongCluster(app, callback) {
     });
 };
 
-function pingKong(app, callback) {
+function pingKong(callback) {
     debug('pingKong()');
 
     async.series([
-        callback => checkKongVersion(app, callback),
-        callback => checkKongCluster(app, callback)
+        callback => checkKongVersion(callback),
+        callback => checkKongCluster(callback)
     ], function (err, results) {
         if (err) {
             console.error('*** KONG does not behave!');

@@ -3,17 +3,19 @@
 const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:portal');
 import * as utils from './utils';
+import * as wicked from 'wicked-sdk';
+import { WickedSubscription, Callback, WickedApplication } from 'wicked-sdk';
 
 const MAX_PARALLEL_CALLS = 10;
 
 // ======== INTERFACE FUNCTIONS =======
 
 export const portal = {
-    getPortalApis: function (app, done) {
+    getPortalApis: function (done) {
         debug('getPortalApis()');
         async.parallel({
-            getApis: callback => getActualApis(app, callback),
-            getAuthServers: callback => getAuthServerApis(app, callback)
+            getApis: callback => getActualApis(callback),
+            getAuthServers: callback => getAuthServerApis(callback)
         }, function (err, results) {
             if (err)
                 return done(err);
@@ -21,7 +23,7 @@ export const portal = {
             const apiList = results.getApis;
             const authServerList = results.getAuthServers;
 
-            let portalHost = app.kongGlobals.network.portalUrl;
+            let portalHost = wicked.getExternalPortalUrl();
             if (!portalHost) {
                 debug('portalUrl is not set in globals.json, defaulting to http://portal:3000');
                 portalHost = 'http://portal:3000'; // Default
@@ -44,7 +46,7 @@ export const portal = {
             debug(apiList);
 
             try {
-                injectAuthPlugins(app, apiList);
+                injectAuthPlugins(apiList);
             } catch (injectErr) {
                 return done(injectErr);
             }
@@ -92,12 +94,12 @@ export const portal = {
      * 
      * One app can have multiple consumers (one per subscription).
      */
-    getAppConsumers: function (app, appId, callback) {
+    getAppConsumers: function (appId, callback) {
         debug('getPortalConsumersForApp() ' + appId);
         const applicationList = [{ id: appId }];
         async.waterfall([
-            callback => utils.getPlans(app, callback),
-            (apiPlans, callback) => enrichApplications(app, applicationList, apiPlans, callback)
+            callback => utils.getPlans(callback),
+            (apiPlans, callback) => enrichApplications(applicationList, apiPlans, callback)
         ], function (err, appConsumers) {
             if (err)
                 return callback(err);
@@ -105,25 +107,25 @@ export const portal = {
         });
     },
 
-    getAllPortalConsumers: function (app, callback) {
+    getAllPortalConsumers: function (callback) {
         debug('getAllPortalConsumers()');
-        return getAllAppConsumers(app, callback);
+        return getAllAppConsumers(callback);
     },
 
 };
 
 // INTERNAL FUNCTIONS/HELPERS
 
-function getActualApis(app, callback) {
+function getActualApis(callback) {
     debug('getActualApis()');
-    utils.apiGet(app, 'apis', function (err, apiList) {
+    wicked.getApis(function (err, apiList) {
         if (err)
             return callback(err);
         // Get the group list from wicked
         const groups = utils.getGroups().groups;
         // Make the scope lists Kong compatible (wicked has more info than Kong)
         for (let i = 0; i < apiList.apis.length; ++i) {
-            const api = apiList.apis[i];
+            const api = apiList.apis[i] as any;
             if (api.settings) {
                 if (api.settings.scopes) {
                     const newScopes = [];
@@ -137,10 +139,10 @@ function getActualApis(app, callback) {
         }
         // Enrich apiList with the configuration.
         async.eachLimit(apiList.apis, MAX_PARALLEL_CALLS, function (apiDef, callback) {
-            utils.apiGet(app, 'apis/' + apiDef.id + '/config', function (err, apiConfig) {
+            wicked.getApiConfig(apiDef.id, function (err, apiConfig) {
                 if (err)
                     return callback(err);
-                apiDef.config = checkApiConfig(app, apiConfig);
+                apiDef.config = checkApiConfig(apiConfig);
                 return callback(null);
             });
         }, function (err) {
@@ -151,13 +153,13 @@ function getActualApis(app, callback) {
     });
 }
 
-function getAuthServerApis(app, callback) {
+function getAuthServerApis(callback) {
     debug('getAuthServerApis()');
-    utils.apiGet(app, 'auth-servers', function (err, authServerNames) {
+    wicked.getAuthServerNames(function (err, authServerNames) {
         if (err)
             return callback(err);
         async.mapLimit(authServerNames, MAX_PARALLEL_CALLS, function (authServerName, callback) {
-            utils.apiGet(app, 'auth-servers/' + authServerName, callback);
+            wicked.getAuthServer(authServerName, callback);
         }, function (err, authServers) {
             if (err)
                 return callback(err);
@@ -167,7 +169,7 @@ function getAuthServerApis(app, callback) {
     });
 }
 
-function checkApiConfig(app, apiConfig) {
+function checkApiConfig(apiConfig) {
     if (apiConfig.plugins) {
         for (let i = 0; i < apiConfig.plugins.length; ++i) {
             const plugin = apiConfig.plugins[i];
@@ -176,7 +178,7 @@ function checkApiConfig(app, apiConfig) {
 
             switch (plugin.name.toLowerCase()) {
                 case "request-transformer":
-                    checkRequestTransformerPlugin(app, apiConfig, plugin);
+                    checkRequestTransformerPlugin(apiConfig, plugin);
                     break;
             }
         }
@@ -184,7 +186,7 @@ function checkApiConfig(app, apiConfig) {
     return apiConfig;
 }
 
-function checkRequestTransformerPlugin(app, apiConfig, plugin) {
+function checkRequestTransformerPlugin(apiConfig, plugin) {
     if (plugin.config &&
         plugin.config.add &&
         plugin.config.add.headers) {
@@ -192,8 +194,8 @@ function checkRequestTransformerPlugin(app, apiConfig, plugin) {
         for (let i = 0; i < plugin.config.add.headers.length; ++i) {
             if (plugin.config.add.headers[i] == '%%Forwarded') {
                 const prefix = apiConfig.api.uris;
-                const proto = app.kongGlobals.network.schema;
-                const rawHost = app.kongGlobals.network.apiHost;
+                const proto = wicked.getSchema();
+                const rawHost = wicked.getExternalApiHost();
                 let host;
                 let port;
                 if (rawHost.indexOf(':') > 0) {
@@ -212,11 +214,11 @@ function checkRequestTransformerPlugin(app, apiConfig, plugin) {
 }
 
 
-function getAllAppConsumers(app, callback) {
+function getAllAppConsumers(callback) {
     debug('getAllAppConsumers()');
     async.parallel({
-        apiPlans: callback => utils.getPlans(app, callback),
-        applicationList: callback => utils.apiGet(app, 'applications', callback)
+        apiPlans: callback => utils.getPlans(callback),
+        applicationList: callback => wicked.getApplications({}, callback)
     }, function (err, results) {
         if (err)
             return callback(err);
@@ -224,7 +226,7 @@ function getAllAppConsumers(app, callback) {
         const applicationList = results.applicationList.items;
         const apiPlans = results.apiPlans;
 
-        enrichApplications(app, applicationList, apiPlans, callback);
+        enrichApplications(applicationList, apiPlans, callback);
     });
 }
 
@@ -233,10 +235,10 @@ function getAllAppConsumers(app, callback) {
 //    application: { id: ,... }
 //    subscriptions: [ ... ]
 // }
-function getApplicationData(app, appId, callback) {
+function getApplicationData(appId: string, callback: Callback<{ subscriptions: WickedSubscription[], application: WickedApplication }>): void {
     debug('getApplicationData() ' + appId);
     async.parallel({
-        subscriptions: callback => utils.apiGet(app, 'applications/' + appId + '/subscriptions', function (err, subsList) {
+        subscriptions: callback => wicked.getSubscriptions(appId, function (err, subsList) {
             if (err && err.status == 404) {
                 // Race condition; web hook processing was not finished until the application
                 // was deleted again (can normally just happen when doing automatic testing).
@@ -247,7 +249,7 @@ function getApplicationData(app, appId, callback) {
             }
             return callback(null, subsList);
         }),
-        application: callback => utils.apiGet(app, 'applications/' + appId, function (err, appInfo) {
+        application: callback => wicked.getApplication(appId, function (err, appInfo) {
             if (err && err.status == 404) {
                 // See above.
                 console.error('*** Get Application: Application with ID ' + appId + ' was not found.');
@@ -265,10 +267,10 @@ function getApplicationData(app, appId, callback) {
     });
 }
 
-function enrichApplications(app, applicationList, apiPlans, done) {
+function enrichApplications(applicationList, apiPlans, done) {
     debug('enrichApplications(), applicationList = ' + utils.getText(applicationList));
     async.mapLimit(applicationList, MAX_PARALLEL_CALLS, function (appInfo, callback) {
-        getApplicationData(app, appInfo.id, callback);
+        getApplicationData(appInfo.id, callback);
     }, function (err, results) {
         if (err)
             return done(err);
@@ -343,7 +345,7 @@ function getPlanById(apiPlans, planId) {
 
 // ======== INTERNAL FUNCTIONS =======
 
-function injectAuthPlugins(app, apiList) {
+function injectAuthPlugins(apiList) {
     debug('injectAuthPlugins()');
     for (let i = 0; i < apiList.apis.length; ++i) {
         const thisApi = apiList.apis[i];
@@ -351,15 +353,15 @@ function injectAuthPlugins(app, apiList) {
             "none" == thisApi.auth)
             continue;
         if ("key-auth" == thisApi.auth)
-            injectKeyAuth(app, thisApi);
+            injectKeyAuth(thisApi);
         else if ("oauth2" == thisApi.auth)
-            injectOAuth2Auth(app, thisApi);
+            injectOAuth2Auth(thisApi);
         else
             throw new Error("Unknown 'auth' setting: " + thisApi.auth);
     }
 }
 
-function injectKeyAuth(app, api) {
+function injectKeyAuth(api) {
     debug('injectKeyAuth()');
     if (!api.config.plugins)
         api.config.plugins = [];
@@ -375,7 +377,7 @@ function injectKeyAuth(app, api) {
         enabled: true,
         config: {
             hide_credentials: true,
-            key_names: [app.kongGlobals.api.headerName]
+            key_names: [wicked.getApiKeyHeader()]
         }
     });
     plugins.push({
@@ -388,7 +390,7 @@ function injectKeyAuth(app, api) {
     return api;
 }
 
-function injectOAuth2Auth(app, api) {
+function injectOAuth2Auth(api) {
     debug('injectImplicitAuth()');
     if (!api.config.plugins)
         api.config.plugins = [];
