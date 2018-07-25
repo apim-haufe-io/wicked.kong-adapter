@@ -1,20 +1,19 @@
-#!/usr/bin/env node
-
 'use strict';
 
 /**
  * Module dependencies.
  */
 
-const app = require('../app');
+import app from '../app';
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:kong-adapter');
 const http = require('http');
 const async = require('async');
-const wicked = require('wicked-sdk');
 
-const kong = require('../kong/main');
-const utils = require('../kong/utils');
-const kongMonitor = require('../kong/monitor');
+import * as wicked from 'wicked-sdk';
+
+import { kongMain } from '../kong/main';
+import * as utils from '../kong/utils';
+import { kongMonitor } from '../kong/monitor';
 
 /**
  * Get port from environment and store in Express.
@@ -44,7 +43,8 @@ const wickedOptions = {
 async.series([
     callback => wicked.initialize(wickedOptions, callback),
     callback => wicked.initMachineUser('kong-adapter', callback),
-    callback => wicked.awaitUrl(wicked.getInternalKongAdminUrl(), callback),
+    callback => wicked.awaitUrl(wicked.getInternalKongAdminUrl(), null, callback),
+    callback => utils.initGroups(callback),
     callback => kongMonitor.init(app, callback)
 ], function (err) {
     debug('Kong and API await finished.');
@@ -62,7 +62,7 @@ async.series([
         syncApis: true,
         syncConsumers: true
     };
-    kong.init(app, initOptions, function (err) {
+    kongMain.init(app, initOptions, function (err) {
         debug('kong.init() returned.');
         if (err) {
             debug('Could not initialize Kong adapter.');
@@ -70,9 +70,9 @@ async.series([
         }
 
         // Graceful shutdown
-        process.on('SIGINT', function() {
+        process.on('SIGINT', function () {
             debug("Gracefully shutting down.");
-            kong.deinit(app, function(err) {
+            kongMain.deinit(app, function (err) {
                 process.exit();
             });
         });
@@ -81,7 +81,6 @@ async.series([
         app.initialized = true;
     });
 });
-
 
 /**
  * Normalize a port into a number, string, or false.
@@ -112,7 +111,7 @@ function onError(error) {
         throw error;
     }
 
-    const bind = typeof port === 'string' ? 
+    const bind = typeof port === 'string' ?
         'Pipe ' + port :
         'Port ' + port;
 
@@ -138,7 +137,7 @@ function onError(error) {
 function onListening() {
     const addr = server.address();
     const bind = typeof addr === 'string' ?
-        'pipe ' + addr : 
+        'pipe ' + addr :
         'port ' + addr.port;
     debug('Listening on ' + bind);
 }

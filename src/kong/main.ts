@@ -3,76 +3,83 @@
 const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:main');
 
-const utils = require('./utils');
-//const kong = require('./kong');
-//const portal = require('./portal');
-const sync = require('./sync');
-
-const kongMain = function () { };
+import * as utils from './utils';
+import { sync } from './sync';
 
 const MAX_ASYNC_CALLS = 10;
 
 // ====== PUBLIC INTERFACE ======
 
-kongMain.init = function (app, options, done) {
-    debug('init()');
-    async.series({
-        initGlobals: function (callback) {
-            if (options.initGlobals) {
-                debug('Calling initGlobals()');
-                initGlobals(app, callback);
-            } else {
-                callback(null);
+export const kongMain = {
+
+    init: function (app, options, done) {
+        debug('init()');
+        async.series({
+            initGlobals: function (callback) {
+                if (options.initGlobals) {
+                    debug('Calling initGlobals()');
+                    initGlobals(app, callback);
+                } else {
+                    callback(null);
+                }
+            },
+            syncApis: function (callback) {
+                if (options.syncApis) {
+                    debug('Calling sync.syncApis()');
+                    sync.syncApis(app, callback);
+                } else {
+                    callback(null);
+                }
+            },
+            processPendingEvents: function (callback) {
+                if (options.syncConsumers) {
+                    processPendingWebhooks(app, callback);
+                } else {
+                    callback(null);
+                }
+            },
+            syncConsumers: function (callback) {
+                if (options.syncConsumers) {
+                    debug('Calling sync.syncConsumers()');
+                    sync.syncAllConsumers(app, callback);
+                } else {
+                    callback(null);
+                }
             }
-        },
-        syncApis: function (callback) {
-            if (options.syncApis) {
-                debug('Calling sync.syncApis()');
-                sync.syncApis(app, callback);
-            } else {
-                callback(null);
+        }, function (err) {
+            if (err) {
+                return done(err);
             }
-        },
-        processPendingEvents: function (callback) {
-            if (options.syncConsumers) {
-                processPendingWebhooks(app, callback);
-            } else {
-                callback(null);
-            }
-        },
-        syncConsumers: function (callback) {
-            if (options.syncConsumers) {
-                debug('Calling sync.syncConsumers()');
-                sync.syncAllConsumers(app, callback);
-            } else {
-                callback(null);
-            }
-        }
-    }, function (err) {
-        if (err) {
-            return done(err);
-        }
-        debug("kong.init() done.");
-        console.log('=========================================');
-        console.log('========== INITIALIZATION DONE ==========');
-        console.log('=========================================');
-        done(null);
-    });
+            debug("kong.init() done.");
+            console.log('=========================================');
+            console.log('========== INITIALIZATION DONE ==========');
+            console.log('=========================================');
+            done(null);
+        });
+    },
+
+    resync: function (app, done) {
+        const initOptions = {
+            syncApis: true,
+            syncConsumers: true
+        };
+        kongMain.init(app, initOptions, done);
+    },
+    
+    processWebhooks: function (app, webhookList, done) {
+        debug('processWebhooks()');
+        const onlyDelete = false;
+        async.eachSeries(webhookList, (webhookData, callback) => dispatchWebhookAction(app, webhookData, onlyDelete, callback), done);
+    },
+
+    deinit: function (app, done) {
+        // Don't do this; this can result in glitches in the database; let
+        // the wicked API store our events until we return.
+        //utils.apiDelete(app, 'webhooks/listeners/kong-adapter', done);
+        setTimeout(done, 0);
+    }
 };
 
-kongMain.resync = function (app, done) {
-    const initOptions = {
-        syncApis: true,
-        syncConsumers: true
-    };
-    kongMain.init(app, initOptions, done);
-};
-
-kongMain.processWebhooks = function (app, webhookList, done) {
-    debug('processWebhooks()');
-    const onlyDelete = false;
-    async.eachSeries(webhookList, (webhookData, callback) => dispatchWebhookAction(app, webhookData, onlyDelete, callback), done);
-};
 
 function processPendingWebhooks(app, done) {
     debug('processPendingWebhooks()');
@@ -170,13 +177,6 @@ function doPostImport(app, done) {
     ], done);
 }
 
-kongMain.deinit = function (app, done) {
-    // Don't do this; this can result in glitches in the database; let
-    // the wicked API store our events until we return.
-    //utils.apiDelete(app, 'webhooks/listeners/kong-adapter', done);
-    setTimeout(done, 0);
-};
-
 // ====== INTERNALS =======
 
 function initGlobals(app, done) {
@@ -209,5 +209,3 @@ function initGlobals(app, done) {
         return done(null);
     });
 }
-
-module.exports = kongMain;

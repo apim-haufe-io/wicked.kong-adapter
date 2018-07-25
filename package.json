@@ -11,7 +11,10 @@
     "wicked-sdk": "file:wicked-sdk.tgz"
   },
   "scripts": {
-    "start": "node ./bin/kong-adapter"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "./build-typescript.sh",
+    "build-and-start": "./build-typescript.sh && node ./dist/bin/kong-adapter.js",
+    "start": "node ./dist/bin/kong-adapter.js"
   },
   "jshintConfig": {
     "node": true,

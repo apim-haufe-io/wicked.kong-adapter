@@ -1,62 +1,61 @@
 'use strict';
 
-const wicked = require('wicked-sdk');
+import * as wicked from 'wicked-sdk';
+import { WickedError } from 'wicked-sdk';
+
 const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:monitor');
 
-const utils = require('./utils');
+import * as utils from './utils';
 
-const monitor = function() {};
+export const kongMonitor = {
+    init: function (app, callback) {
+        debug('init()');
 
-monitor.init = function (app, callback) {
-    debug('init()');
+        app.set('kong_url', wicked.getInternalKongAdminUrl());
 
-    app.set('kong_url', wicked.getInternalKongAdminUrl());
+        pingKong(app, function (err) {
+            if (err)
+                return callback(err);
+            // Set up Kong Monitor every ten seconds (retrieve version and cluster status)
+            setInterval(pingKong, 10000, app);
 
-    pingKong(app, function (err) {
-        if (err)
-            return callback(err);
-        // Set up Kong Monitor every ten seconds (retrieve version and cluster status)
-        setInterval(pingKong, 10000, app);
-
-        // OK, we're fine!
-        callback(null);
-    });
+            // OK, we're fine!
+            callback(null);
+        });
+    },
 };
 
-const checkKongVersion = function (app, callback) {
+function checkKongVersion(app, callback) {
     utils.kongGet(app, '/', function (err, body) {
         if (err)
             return callback(err);
         if (!body.version) {
-            const err = new Error('Did not get expected "version" property from Kong.');
-            err.status = 500;
+            const err = new WickedError('Did not get expected "version" property from Kong.', 500, body);
             return callback(err);
         }
         const expectedVersion = utils.getExpectedKongVersion();
         if (expectedVersion !== body.version) {
-            const err = new Error('Unexpected Kong version. Got "' + body.version + '", expected "' + expectedVersion + '"');
-            err.status = 500;
+            const err = new WickedError('Unexpected Kong version. Got "' + body.version + '", expected "' + expectedVersion + '"', 500, body);
             return callback(err);
         }
         return callback(null, body.version);
     });
 };
 
-const checkKongCluster = function (app, callback) {
+function checkKongCluster(app, callback) {
     utils.kongGet(app, 'status', function (err, body) {
         if (err)
             return callback(err);
         if (!body.database) {
-            const err = new Error('Kong answer from /status did not contain "database" property.');
-            err.status = 500;
+            const err = new WickedError('Kong answer from /status did not contain "database" property.', 500, body);
             return callback(err);
         }
         return callback(null, body);
     });
 };
 
-const pingKong = function (app, callback) {
+function pingKong(app, callback) {
     debug('pingKong()');
 
     async.series([
@@ -82,5 +81,3 @@ function forceExit() {
     console.log('Exiting component due to misbehaving Kong (see log).');
     process.exit(0);
 }
-
-module.exports = monitor;

@@ -2,63 +2,125 @@
 
 const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:portal');
-const utils = require('./utils');
-
-const portal = function () { };
+import * as utils from './utils';
 
 const MAX_PARALLEL_CALLS = 10;
 
 // ======== INTERFACE FUNCTIONS =======
 
-portal.getPortalApis = function (app, done) {
-    debug('getPortalApis()');
-    async.parallel({
-        getApis: callback => getActualApis(app, callback),
-        getAuthServers: callback => getAuthServerApis(app, callback)
-    }, function (err, results) {
-        if (err)
-            return done(err);
+export const portal = {
+    getPortalApis: function (app, done) {
+        debug('getPortalApis()');
+        async.parallel({
+            getApis: callback => getActualApis(app, callback),
+            getAuthServers: callback => getAuthServerApis(app, callback)
+        }, function (err, results) {
+            if (err)
+                return done(err);
 
-        const apiList = results.getApis;
-        const authServerList = results.getAuthServers;
+            const apiList = results.getApis;
+            const authServerList = results.getAuthServers;
 
-        let portalHost = app.kongGlobals.network.portalUrl;
-        if (!portalHost) {
-            debug('portalUrl is not set in globals.json, defaulting to http://portal:3000');
-            portalHost = 'http://portal:3000'; // Default
-        }
-        // Add the Swagger UI "API" for tunneling
-        const swaggerApi = require('../resources/swagger-ui.json');
-        swaggerApi.config.api.upstream_url = portalHost + '/swagger-ui';
-        apiList.apis.push(swaggerApi);
+            let portalHost = app.kongGlobals.network.portalUrl;
+            if (!portalHost) {
+                debug('portalUrl is not set in globals.json, defaulting to http://portal:3000');
+                portalHost = 'http://portal:3000'; // Default
+            }
+            // Add the Swagger UI "API" for tunneling
+            const swaggerApi = require('../../resources/swagger-ui.json');
+            swaggerApi.config.api.upstream_url = portalHost + '/swagger-ui';
+            apiList.apis.push(swaggerApi);
 
-        // And a Ping end point for monitoring            
-        const pingApi = require('../resources/ping-api.json');
-        pingApi.config.api.upstream_url = portalHost + '/ping';
-        apiList.apis.push(pingApi);
+            // And a Ping end point for monitoring            
+            const pingApi = require('../../resources/ping-api.json');
+            pingApi.config.api.upstream_url = portalHost + '/ping';
+            apiList.apis.push(pingApi);
 
-        // And the auth Servers please
-        for (let i = 0; i < authServerList.length; ++i)
-            apiList.apis.push(authServerList[i]);
+            // And the auth Servers please
+            for (let i = 0; i < authServerList.length; ++i)
+                apiList.apis.push(authServerList[i]);
 
-        debug('getPortalApis():');
-        debug(apiList);
+            debug('getPortalApis():');
+            debug(apiList);
 
-        try {
-            injectAuthPlugins(app, apiList);
-        } catch (injectErr) {
-            return done(injectErr);
-        }
+            try {
+                injectAuthPlugins(app, apiList);
+            } catch (injectErr) {
+                return done(injectErr);
+            }
 
-        return done(null, apiList);
-    });
+            return done(null, apiList);
+        });
+    },
+
+    /**
+     * This is what we want from the portal:
+     *
+     * [
+     *    {
+     *        "consumer": {
+     *            "username": "my-app$petstore",
+     *            "custom_id": "3476ghow89e746goihw576iger5how4576"
+     *        },
+     *        "plugins": {
+     *            "key-auth": [
+     *                { "key": "flkdfjlkdjflkdjflkdfldf" }
+     *            ],
+     *            "acls": [
+     *                { "group": "petstore" }
+     *            ],
+     *            "oauth2": [
+     *                { 
+     *                    "name": "My Application",
+     *                    "client_id": "my-app-petstore",
+     *                    "client_secret": "uwortiu4eot8g7he59t87je59thoerizuoh",
+     *                    "redirect_uri": ["http://dummy.org"]
+     *                }
+     *            ]
+     *        },
+     *        "apiPlugins": [
+     *            {
+     *                "name": "rate-limiting",
+     *                "config": {
+     *                    "hour": 100,
+     *                    "fault_tolerant": true
+     *                }
+     *            }
+     *        ]
+     *    }
+     * ]
+     * 
+     * One app can have multiple consumers (one per subscription).
+     */
+    getAppConsumers: function (app, appId, callback) {
+        debug('getPortalConsumersForApp() ' + appId);
+        const applicationList = [{ id: appId }];
+        async.waterfall([
+            callback => utils.getPlans(app, callback),
+            (apiPlans, callback) => enrichApplications(app, applicationList, apiPlans, callback)
+        ], function (err, appConsumers) {
+            if (err)
+                return callback(err);
+            callback(null, appConsumers);
+        });
+    },
+
+    getAllPortalConsumers: function (app, callback) {
+        debug('getAllPortalConsumers()');
+        return getAllAppConsumers(app, callback);
+    },
+
 };
+
+// INTERNAL FUNCTIONS/HELPERS
 
 function getActualApis(app, callback) {
     debug('getActualApis()');
     utils.apiGet(app, 'apis', function (err, apiList) {
         if (err)
             return callback(err);
+        // Get the group list from wicked
+        const groups = utils.getGroups().groups;
         // Make the scope lists Kong compatible (wicked has more info than Kong)
         for (let i = 0; i < apiList.apis.length; ++i) {
             const api = apiList.apis[i];
@@ -149,63 +211,6 @@ function checkRequestTransformerPlugin(app, apiConfig, plugin) {
     }
 }
 
-/*
-
-This is what we want from the portal:
-
-[
-    {
-        "consumer": {
-            "username": "my-app$petstore",
-            "custom_id": "3476ghow89e746goihw576iger5how4576"
-        },
-        "plugins": {
-            "key-auth": [
-                { "key": "flkdfjlkdjflkdjflkdfldf" }
-            ],
-            "acls": [
-                { "group": "petstore" }
-            ],
-            "oauth2": [
-                { 
-                    "name": "My Application",
-                    "client_id": "my-app-petstore",
-                    "client_secret": "uwortiu4eot8g7he59t87je59thoerizuoh",
-                    "redirect_uri": ["http://dummy.org"]
-                }
-            ]
-        },
-        "apiPlugins": [
-            {
-                "name": "rate-limiting",
-                "config": {
-                    "hour": 100,
-                    "fault_tolerant": true
-                }
-            }
-        ]
-    }
-]
-*/
-
-/* One app can have multiple consumers (one per subscription) */
-portal.getAppConsumers = function (app, appId, callback) {
-    debug('getPortalConsumersForApp() ' + appId);
-    const applicationList = [{ id: appId }];
-    async.waterfall([
-        callback => utils.getPlans(app, callback),
-        (apiPlans, callback) => enrichApplications(app, applicationList, apiPlans, callback)
-    ], function (err, appConsumers) {
-        if (err)
-            return callback(err);
-        callback(null, appConsumers);
-    });
-};
-
-portal.getAllPortalConsumers = function (app, callback) {
-    debug('getAllPortalConsumers()');
-    return getAllAppConsumers(app, callback);
-};
 
 function getAllAppConsumers(app, callback) {
     debug('getAllAppConsumers()');
@@ -279,7 +284,7 @@ function enrichApplications(app, applicationList, apiPlans, done) {
                     continue;
 
                 debug(utils.getText(appSubs));
-                const consumerInfo = {
+                const consumerInfo: any = {
                     consumer: {
                         username: utils.makeUserName(appSubs.application, appSubs.api),
                         custom_id: appSubs.id
@@ -444,5 +449,3 @@ function injectOAuth2Auth(app, api) {
         }
     });
 }
-
-module.exports = portal;

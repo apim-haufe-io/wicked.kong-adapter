@@ -1,3 +1,10 @@
-FROM ${DOCKER_PREFIX}portal-env:${PORTAL_ENV_TAG}${BUILD_ALPINE}
+FROM ${DOCKER_PREFIX}portal-env:${PORTAL_ENV_TAG}${BUILD_ALPINE} as builder
+USER root
+RUN npm install -g typescript
+RUN npm run build
+RUN chown -R node:node /usr/src/app
 
-EXPOSE 3002
+FROM ${DOCKER_PREFIX}portal-env:${PORTAL_ENV_TAG}${BUILD_ALPINE}
+COPY --from=builder /usr/src/app/dist /usr/src/app/dist
+
+EXPOSE 3010

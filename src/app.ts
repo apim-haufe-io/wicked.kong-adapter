@@ -1,14 +1,17 @@
 'use strict';
 
 const express = require('express');
-const path = require('path');
 const logger = require('morgan');
 const bodyParser = require('body-parser');
-const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:app');
-const correlationIdHandler = require('wicked-sdk').correlationIdHandler();
-const kongMain = require('./kong/main');
-const utils = require('./kong/utils');
+
+import * as wicked from 'wicked-sdk';
+const correlationIdHandler = wicked.correlationIdHandler();
+
+import { WickedError } from 'wicked-sdk';
+
+import { kongMain } from './kong/main';
+import * as utils from  './kong/utils';
 
 const app = express();
 app.initialized = false;
@@ -54,7 +57,7 @@ app.post('/', function (req, res, next) {
 app._startupSeconds = utils.getUtc();
 app.get('/ping', function (req, res, next) {
     debug('/ping');
-    const health = {
+    const health: any = {
         name: 'kong-adapter',
         message: 'Up and running',
         uptime: (utils.getUtc() - app._startupSeconds),
@@ -140,7 +143,7 @@ if (process.env.ALLOW_KILL) {
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {
-    const err = new Error('Not Found');
+    const err = new WickedError('Not Found');
     err.status = 404;
     next(err);
 });
@@ -159,4 +162,4 @@ app.use(function (err, req, res, next) {
     });
 });
 
-module.exports = app;
+export default app;
