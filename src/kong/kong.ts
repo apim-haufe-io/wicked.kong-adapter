@@ -256,22 +256,6 @@ export const kong = {
                 debug('getKongConsumers() succeeded.');
                 return callback(null, results);
             });
-        /*
-        utils.kongGet('consumers?size=1000000', function (err, rawConsumerList) {
-            if (err)
-                return done(err);
-    
-            async.mapSeries(rawConsumerList.data, function (kongConsumer, callback) {
-                enrichConsumerInfo(kongConsumer, callback);
-            }, function (err, results) {
-                if (err)
-                    return done(err);
-    
-                debug(utils.getText(results));
-                return done(null, results);
-            });
-        });
-        */
     },
 
     addKongConsumerApiPlugins: function (addList, consumerId, done) {
