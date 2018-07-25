@@ -30,12 +30,12 @@ export const portal = {
             }
             // Add the Swagger UI "API" for tunneling
             const swaggerApi = require('../../resources/swagger-ui.json');
-            swaggerApi.config.api.upstream_url = portalHost + '/swagger-ui';
+            swaggerApi.config.api.upstream_url = portalHost + 'swagger-ui';
             apiList.apis.push(swaggerApi);
 
             // And a Ping end point for monitoring            
             const pingApi = require('../../resources/ping-api.json');
-            pingApi.config.api.upstream_url = portalHost + '/ping';
+            pingApi.config.api.upstream_url = portalHost + 'ping';
             apiList.apis.push(pingApi);
 
             // And the auth Servers please
