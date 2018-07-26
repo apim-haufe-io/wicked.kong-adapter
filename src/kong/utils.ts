@@ -7,9 +7,11 @@ import * as wicked from 'wicked-sdk';
 
 const fs = require('fs');
 const path = require('path');
+const qs = require('querystring');
 
-import { SyncStatistics } from "./types";
-import { WickedGroupCollection, Callback, WickedApiPlanCollection, WickedApiPlan } from "wicked-sdk";
+import { SyncStatistics, KongCollection, KongConsumer, KongGlobals, KongStatus } from "./types";
+import { WickedGroupCollection, Callback, WickedApiPlanCollection, WickedApiPlan, KongApi, KongService, KongRoute, KongPlugin, ErrorCallback } from "wicked-sdk";
+import { DEFAULT_ENCODING } from 'crypto';
 
 export function getUtc(): number {
     return Math.floor((new Date()).getTime() / 1000);
@@ -224,19 +226,19 @@ function kongAction(method, url, body, expectedStatusCode, callback: Callback<an
     });
 }
 
-export function kongGet(url: string, callback: Callback<any>) {
+function kongGet(url: string, callback: Callback<any>) {
     kongAction('GET', url, null, 200, callback);
 };
 
-export function kongPost(url, body, callback) {
+function kongPost(url, body, callback) {
     kongAction('POST', url, body, 201, callback);
 };
 
-export function kongDelete(url, callback) {
+function kongDelete(url, callback) {
     kongAction('DELETE', url, null, 204, callback);
 };
 
-export function kongPatch(url, body, callback) {
+function kongPatch(url, body, callback) {
     kongAction('PATCH', url, body, 200, callback);
 };
 
@@ -376,3 +378,97 @@ export function getBuildDate() {
     }
     return _buildDate;
 };
+
+// KONG Convenience functions (typed)
+
+// Don't use this if you don't have to, it's for super special cases.
+// Usually, please create a named wrapper function for the Kong API call.
+export function kongGetRaw(url: string, callback: Callback<object>): void {
+    kongGet(url, callback);
+}
+
+// API functions
+export function kongGetAllApis(callback: Callback<KongCollection<KongApi>>): void {
+    debug('kongGetAllApis()');
+    kongGet('apis?size=1000000', callback);
+}
+
+export function kongGetApiPlugins(apiId: string, callback: Callback<KongCollection<KongPlugin>>): void {
+    debug(`kongGetApiPlugins(${apiId})`);
+    kongGet(`apis/${apiId}/plugins?size=1000000`, callback);
+}
+
+export function kongPostApi(apiConfig: KongApi, callback: Callback<KongApi>): void {
+    kongPost('apis', apiConfig, callback);
+}
+
+export function kongPatchApi(apiId: string, apiConfig: KongApi, callback: Callback<KongApi>): void {
+    kongPatch(`apis/${apiId}`, apiConfig, callback);
+}
+
+export function kongDeleteApi(apiId: string, callback: ErrorCallback): void {
+    kongDelete(`apis/${apiId}`, callback);
+}
+
+export function kongPostApiPlugin(apiId: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
+    kongPost(`apis/${apiId}/plugins`, plugin, callback);
+}
+
+export function kongPatchApiPlugin(apiId: string, pluginId: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
+    kongPatch(`apis/${apiId}/plugins/${pluginId}`, plugin, callback);
+}
+
+export function kongDeleteApiPlugin(apiId: string, pluginId: string, callback: ErrorCallback): void {
+    kongDelete(`apis/${apiId}/plugins/${pluginId}`, callback);
+}
+
+// Consumer functions
+export function kongGetConsumersByUsername(username: string, callback: Callback<KongCollection<KongConsumer>>): void {
+    kongGet('consumers?username=' + qs.escape(username), callback);
+}
+
+export function kongGetConsumersByCustomId(customId: string, callback: Callback<KongCollection<KongConsumer>>): void {
+    kongGet('consumers?custom_id=' + qs.escape(customId), callback);
+}
+
+export function kongGetConsumerByName(username: string, callback: Callback<KongConsumer>): void {
+    kongGet(`consumers/${username}`, callback);
+}
+
+export function kongGetConsumerPluginData(consumerId: string, pluginName: string, callback: Callback<KongCollection<object>>): void {
+    kongGet(`consumers/${consumerId}/${pluginName}`, callback);
+}
+
+export function kongGetApiPluginsByConsumer(apiId: string, consumerId: string, callback: Callback<KongCollection<KongPlugin>>): void {
+    kongGet(`apis/${apiId}/plugins?consumer_id=${qs.escape(consumerId)}`, callback);
+}
+
+export function kongPostConsumer(consumer: KongConsumer, callback: Callback<KongConsumer>): void {
+    kongPost('consumer', consumer, callback);
+}
+
+export function kongPostConsumerPlugin(consumerId: string, pluginName: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
+    kongPost(`consumers/${consumerId}/${pluginName}`, plugin, callback);
+}
+
+export function kongDeleteConsumerPlugin(consumerId: string, pluginName: string, pluginId: string, callback: ErrorCallback): void {
+    kongDelete(`consumers/${consumerId}/${pluginName}/${pluginId}`, callback);
+}
+
+export function kongPatchConsumer(consumerId: string, consumer: KongConsumer, callback: Callback<KongConsumer>): void {
+    kongPatch(`consumers/${consumerId}`, consumer, callback);
+}
+
+export function kongDeleteConsumer(consumerId: string, callback: ErrorCallback): void {
+    kongDelete(`consumers/${consumerId}`, callback);
+}
+
+// OTHER FUNCTIONS
+
+export function kongGetGlobals(callback: Callback<KongGlobals>): void {
+    kongGet('/', callback);
+}
+
+export function kongGetStatus(callback: Callback<KongStatus>): void {
+    kongGet('status', callback);
+}

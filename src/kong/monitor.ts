@@ -27,7 +27,7 @@ export const kongMonitor = {
 };
 
 function checkKongVersion(callback) {
-    utils.kongGet('/', function (err, body) {
+    utils.kongGetGlobals(function (err, body) {
         if (err)
             return callback(err);
         if (!body.version) {
@@ -44,7 +44,7 @@ function checkKongVersion(callback) {
 };
 
 function checkKongCluster(callback) {
-    utils.kongGet('status', function (err, body) {
+    utils.kongGetStatus(function (err, body) {
         if (err)
             return callback(err);
         if (!body.database) {
