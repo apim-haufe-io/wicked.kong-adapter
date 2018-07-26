@@ -8,10 +8,10 @@ import * as wicked from 'wicked-sdk';
 const fs = require('fs');
 const path = require('path');
 const qs = require('querystring');
+const async = require('async');
 
-import { SyncStatistics, KongCollection, KongConsumer, KongGlobals, KongStatus } from "./types";
-import { WickedGroupCollection, Callback, WickedApiPlanCollection, WickedApiPlan, KongApi, KongService, KongRoute, KongPlugin, ErrorCallback } from "wicked-sdk";
-import { DEFAULT_ENCODING } from 'crypto';
+import { SyncStatistics } from "./types";
+import { WickedGroupCollection, Callback, WickedApiPlanCollection, WickedApiPlan, KongApi, KongService, KongRoute, KongPlugin, ErrorCallback, ProtocolType, KongCollection, KongConsumer, KongGlobals, KongStatus } from "wicked-sdk";
 
 export function getUtc(): number {
     return Math.floor((new Date()).getTime() / 1000);
@@ -387,39 +387,173 @@ export function kongGetRaw(url: string, callback: Callback<object>): void {
     kongGet(url, callback);
 }
 
+// Service functions
+function kongGetAllServices(callback: Callback<KongCollection<KongService>>): void {
+    kongGet('services?size=100000', callback);
+}
+
+function kongPostService(service: KongService, callback: Callback<KongService>): void {
+    kongPost('services', service, callback);
+}
+
+function kongPatchService(serviceId: string, service: KongService, callback: Callback<KongService>): void {
+    kongPatch(`services/${serviceId}`, service, callback);
+}
+
+function kongDeleteService(serviceId: string, callback: ErrorCallback): void {
+    kongDelete(`services/${serviceId}`, callback);
+}
+
+// Route functions
+function kongGetAllRoutes(callback: Callback<KongCollection<KongRoute>>): void {
+    kongGet('routes?size=100000', callback);
+}
+
+function kongPostRoute(route: KongRoute, callback: Callback<KongRoute>): void {
+    kongPost('routes', route, callback);
+}
+
+function kongPatchRoute(routeId: string, route: KongRoute, callback: Callback<KongRoute>): void {
+    kongPatch(`routes/${routeId}`, route, callback);
+}
+
+function kongDeleteRoute(routeId: string, callback: ErrorCallback) {
+    kongDelete(`routes/${routeId}`, callback);
+}
+
+function kongGetRouteForService(serviceId: string, callback: Callback<KongRoute>): void {
+    kongGet(`services/${serviceId}/routes`, function (err, routes: KongCollection<KongRoute>) {
+        if (err)
+            return callback(err);
+        if (routes.total === 0)
+            return callback(null, null);
+        if (routes.total === 1)
+            return callback(null, routes.data[0]);
+        warn(`kongGetRouteForService(${serviceId}): Multiple routes found, returning the first one.`);
+        return callback(null, routes.data[0]);
+    })
+}
+
 // API functions
 export function kongGetAllApis(callback: Callback<KongCollection<KongApi>>): void {
     debug('kongGetAllApis()');
-    kongGet('apis?size=1000000', callback);
+    async.parallel({
+        services: callback => kongGetAllServices(callback),
+        routes: callback => kongGetAllRoutes(callback)
+    }, function (err, results) {
+        if (err)
+            return callback(err);
+        const services = results.services as KongCollection<KongService>;
+        const routes = results.routes as KongCollection<KongRoute>;
+
+        // Step 1: Build a service id to service map
+        const serviceIdMap = new Map<string, KongService>();
+        for (let i = 0; i < services.data.length; ++i) {
+            const s = services.data[i];
+            serviceIdMap.set(s.id, s);
+        }
+        // Step 2: Match the routes to the services
+        const kongApis: KongApi[] = [];
+        for (let i = 0; i < routes.data.length; ++i) {
+            const r = routes.data[i];
+            if (!serviceIdMap.has(r.service.id)) {
+                warn(`kongGetAllApis: Route ${r.id} with paths ${r.paths} has an unknown service id ${r.service.id}`);
+                continue;
+            }
+            kongApis.push(wicked.kongServiceRouteToApi(serviceIdMap.get(r.service.id), r));
+        }
+
+        return callback(null, {
+            total: kongApis.length,
+            data: kongApis
+        });
+    });
+    // kongGet('apis?size=1000000', callback);
 }
 
 export function kongGetApiPlugins(apiId: string, callback: Callback<KongCollection<KongPlugin>>): void {
     debug(`kongGetApiPlugins(${apiId})`);
-    kongGet(`apis/${apiId}/plugins?size=1000000`, callback);
+    // kongGet(`apis/${apiId}/plugins?size=1000000`, callback);
+    kongGet(`services/${apiId}/plugins?size=1000000`, callback);
 }
 
 export function kongPostApi(apiConfig: KongApi, callback: Callback<KongApi>): void {
-    kongPost('apis', apiConfig, callback);
+    debug('kongPostApi()');
+    const { service, route } = wicked.kongApiToServiceRoute(apiConfig);
+    let persistedService: KongService = null;
+    let persistedRoute: KongRoute = null;
+    async.waterfall([
+        callback => kongPostService(service, callback),
+        (s: KongService, callback) => {
+            persistedService = s;
+            route.service = {
+                id: s.id
+            }
+            kongPostRoute(route, callback);
+        },
+        (r: KongRoute, callback) => {
+            persistedRoute = r;
+            return callback(null);
+        }
+    ], (err) => {
+        if (err)
+            return callback(err);
+        return callback(null, wicked.kongServiceRouteToApi(persistedService, persistedRoute));
+    })
+    //kongPost('apis', apiConfig, callback);
 }
 
 export function kongPatchApi(apiId: string, apiConfig: KongApi, callback: Callback<KongApi>): void {
-    kongPatch(`apis/${apiId}`, apiConfig, callback);
+    debug(`kongPatchApi(${apiId})`);
+    const { service, route } = wicked.kongApiToServiceRoute(apiConfig);
+    service.id = apiId;
+    kongGetRouteForService(apiId, function (err, existingRoute) {
+        if (err)
+            return err;
+        if (!existingRoute)
+            return callback(new Error(`Could not retrieve route for service ${apiId}`));
+        route.id = existingRoute.id;
+        route.service = { id: existingRoute.service.id };
+        async.series({
+            persistedService: callback => kongPatchService(apiId, service, callback),
+            persistedRoute: callback => kongPatchRoute(route.id, route, callback)
+        }, function (err, results) {
+            return callback(null, wicked.kongServiceRouteToApi(results.persistedService, results.persistedRoute));
+        })
+    })
+    //kongPatch(`apis/${apiId}`, apiConfig, callback);
 }
 
 export function kongDeleteApi(apiId: string, callback: ErrorCallback): void {
-    kongDelete(`apis/${apiId}`, callback);
+    debug(`kongDeleteApi(${apiId})`);
+    kongGetRouteForService(apiId, function (err, route) {
+        if (err)
+            return callback(err);
+        kongDeleteRoute(route.id, function (err) {
+            if (err)
+                return callback(err);
+            kongDeleteService(apiId, callback);
+        })
+    });
+    //kongDelete(`apis/${apiId}`, callback);
 }
 
 export function kongPostApiPlugin(apiId: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
-    kongPost(`apis/${apiId}/plugins`, plugin, callback);
+    debug(`kongPostApiPlugin(${apiId}, ${plugin.name})`);
+    //kongPost(`apis/${apiId}/plugins`, plugin, callback);
+    kongPost(`services/${apiId}/plugins`, plugin, callback);
 }
 
 export function kongPatchApiPlugin(apiId: string, pluginId: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
-    kongPatch(`apis/${apiId}/plugins/${pluginId}`, plugin, callback);
+    debug(`kongPatchApiPlugin(${apiId}, ${plugin.name})`);
+    //kongPatch(`apis/${apiId}/plugins/${pluginId}`, plugin, callback);
+    kongPatch(`services/${apiId}/plugins/${pluginId}`, plugin, callback);
 }
 
 export function kongDeleteApiPlugin(apiId: string, pluginId: string, callback: ErrorCallback): void {
-    kongDelete(`apis/${apiId}/plugins/${pluginId}`, callback);
+    debug(`kongDeleteApiPlugin(${apiId}, ${pluginId})`);
+    //kongDelete(`apis/${apiId}/plugins/${pluginId}`, callback);
+    kongDelete(`services/${apiId}/plugins/${pluginId}`, callback);
 }
 
 // Consumer functions
@@ -440,11 +574,11 @@ export function kongGetConsumerPluginData(consumerId: string, pluginName: string
 }
 
 export function kongGetApiPluginsByConsumer(apiId: string, consumerId: string, callback: Callback<KongCollection<KongPlugin>>): void {
-    kongGet(`apis/${apiId}/plugins?consumer_id=${qs.escape(consumerId)}`, callback);
+    kongGet(`services/${apiId}/plugins?consumer_id=${qs.escape(consumerId)}`, callback);
 }
 
 export function kongPostConsumer(consumer: KongConsumer, callback: Callback<KongConsumer>): void {
-    kongPost('consumer', consumer, callback);
+    kongPost('consumers', consumer, callback);
 }
 
 export function kongPostConsumerPlugin(consumerId: string, pluginName: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {

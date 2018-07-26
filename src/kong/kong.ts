@@ -5,8 +5,7 @@ const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:
 const qs = require('querystring');
 
 import * as utils from './utils';
-import { KongApi, KongPlugin, Callback } from 'wicked-sdk';
-import { KongCollection, KongConsumer } from './types';
+import { KongApi, KongCollection, KongConsumer, KongPlugin, Callback } from 'wicked-sdk';
 
 // The maximum number of async I/O calls we fire off against
 // the Kong instance for one single call.
