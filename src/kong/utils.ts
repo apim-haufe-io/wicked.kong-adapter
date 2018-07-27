@@ -554,7 +554,7 @@ export function kongPatchApiPlugin(apiId: string, pluginId: string, plugin: Kong
 export function kongDeleteApiPlugin(apiId: string, pluginId: string, callback: ErrorCallback): void {
     debug(`kongDeleteApiPlugin(${apiId}, ${pluginId})`);
     //kongDelete(`apis/${apiId}/plugins/${pluginId}`, callback);
-    kongDelete(`plugins/${pluginId}`, callback);
+    kongDeletePlugin(pluginId, callback);
 }
 
 // Consumer functions
@@ -602,4 +602,18 @@ export function kongGetGlobals(callback: Callback<KongGlobals>): void {
 
 export function kongGetStatus(callback: Callback<KongStatus>): void {
     kongGet('status', callback);
+}
+
+// Global Plugin functions
+
+export function kongGetPluginsByName(pluginName: string, callback: Callback<KongCollection<KongPlugin>>): void {
+    kongGet(`plugins?name=${qs.escape(pluginName)}&size=1000000`, callback);
+}
+
+export function kongPostGlobalPlugin(plugin: KongPlugin, callback: Callback<KongPlugin>): void {
+    kongPost('plugins', plugin, callback);
+}
+
+export function kongDeletePlugin(pluginId: string, callback: ErrorCallback): void {
+    kongDelete(`plugins/${pluginId}`, callback);
 }

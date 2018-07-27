@@ -47,6 +47,9 @@ export const kongMain = {
                 } else {
                     callback(null);
                 }
+            },
+            addPrometheusPlugin: function (callback) {
+                sync.addPrometheusPlugin(callback);
             }
         }, function (err) {
             if (err) {

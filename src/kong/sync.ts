@@ -175,6 +175,24 @@ export const sync = {
     wipeAllConsumers: function (done) {
         debug('wipeAllConsumers()');
         kong.wipeAllConsumers(done);
+    },
+
+    addPrometheusPlugin: function (callback) {
+        debug('addPrometheusPlugin()');
+        utils.kongGetPluginsByName('prometheus', function (err, plugins) {
+            if (err)
+                return callback(err);
+            const globalPlugins = plugins.data.filter(p => !p.api_id && !p.route_id && !p.service_id);
+            if (globalPlugins.length === 0) {
+                info('Adding prometheus global plugin.');
+                return utils.kongPostGlobalPlugin({ name: 'prometheus', enabled: true }, callback);
+            } else if (globalPlugins.length === 1) {
+                info('Detected global prometheus plugin. Leaving as is.');
+                return callback(null);
+            }
+            error(JSON.stringify(globalPlugins, null, 2));
+            return callback(new Error('Detected multiple global prometheus plugins.'));
+        });
     }
 };
 
