@@ -6,7 +6,7 @@ const qs = require('querystring');
 
 import * as utils from './utils';
 import { KongCollection, KongConsumer, KongPlugin, Callback, ErrorCallback, KongApiConfig } from 'wicked-sdk';
-import { KongApiConfigCollection, UpdateApiItem, DeleteApiItem, AddApiItem, AddPluginItem, UpdatePluginItem, DeletePluginItem, ConsumerInfo, AddConsumerItem, UpdateConsumerItem, ConsumerApiPluginAddItem, ConsumerApiPluginPatchItem, ConsumerApiPluginDeleteItem } from './types';
+import { KongApiConfigCollection, UpdateApiItem, DeleteApiItem, AddApiItem, AddPluginItem, UpdatePluginItem, DeletePluginItem, ConsumerInfo, AddConsumerItem, UpdateConsumerItem, ConsumerApiPluginAddItem, ConsumerApiPluginPatchItem, ConsumerApiPluginDeleteItem, ConsumerPlugin } from './types';
 
 // The maximum number of async I/O calls we fire off against
 // the Kong instance for one single call.
@@ -179,7 +179,7 @@ export const kong = {
         // - kongPlugin: Kong's Plugin representation (for ids)
         async.eachSeries(updateList, function (updateItem: UpdatePluginItem, callback) {
             info(`Detected change in plugin "${updateItem.portalPlugin.name}" for API ${updateItem.kongApi.api.name} (${updateItem.kongApi.api.id}), patching`);
-            utils.kongPatchApiPlugin(updateItem.kongApi.api.id, updateItem.kongPlugin.id, updateItem.kongPlugin, callback);
+            utils.kongPatchApiPlugin(updateItem.kongApi.api.id, updateItem.kongPlugin.id, updateItem.portalPlugin, callback);
         }, function (err) {
             if (err)
                 return done(err);
@@ -334,7 +334,6 @@ export const kong = {
         // - kongConsumer
 
         async.eachSeries(updateList, function (updateItem: UpdateConsumerItem, callback) {
-            info(`Updating consumer ${updateItem.portalConsumer.consumer.username}`);
             async.series([
                 function (asyncCallback) {
                     updateKongConsumer(updateItem.portalConsumer, updateItem.kongConsumer, asyncCallback);
@@ -369,7 +368,7 @@ export const kong = {
                 }
                 return callback(err);
             }
-            // This should be just one call, but the consumer is in an array, so this does not hurt.
+            info(`Deleting consumer with username ${username} (id ${kongConsumer.id})`);
             utils.kongDeleteConsumer(kongConsumer.id, callback);
         });
     },
@@ -387,7 +386,7 @@ export const kong = {
             if (consumerList.data.length > 1)
                 warn('Multiple consumers with custom_id ' + customId + ' found, killing them all.');
             // This should be just one call, but the consumer is in an array, so this does not hurt.
-            info(`Deleting consumer ${customId}`);
+            info(`Deleting consumers with custom ID ${customId}`);
             async.map(consumerList.data, (consumer, callback) => utils.kongDeleteConsumer(consumer.id, callback), function (err, results) {
                 if (err)
                     return callback(err);
@@ -609,9 +608,10 @@ function addKongConsumer(addItem, done) {
     });
 }
 
-function addKongConsumerPlugin(consumerId: string, pluginName: string, pluginDataList, done) {
+function addKongConsumerPlugin(consumerId: string, pluginName: string, pluginDataList: ConsumerPlugin[], done) {
     debug('addKongConsumerPlugin()');
-    async.eachSeries(pluginDataList, function (pluginData, callback) {
+    async.eachSeries(pluginDataList, function (pluginData: ConsumerPlugin, callback) {
+        info(`Adding consumer plugin ${pluginName} for consumer ${consumerId}`);
         utils.kongPostConsumerPlugin(consumerId, pluginName, pluginData, callback);
     }, function (err) {
         if (err)
@@ -623,6 +623,7 @@ function addKongConsumerPlugin(consumerId: string, pluginName: string, pluginDat
 function deleteKongConsumerPlugin(consumerId, pluginName, pluginDataList, done) {
     debug('deleteKongConsumerPlugin()');
     async.eachSeries(pluginDataList, function (pluginData, callback) {
+        info(`Deleting consumer plugin ${pluginName} for consumer ${consumerId}`);
         utils.kongDeleteConsumerPlugin(consumerId, pluginName, pluginData.id, callback);
     }, function (err) {
         if (err)
@@ -689,15 +690,10 @@ function updateKongConsumer(portalConsumer: ConsumerInfo, kongConsumer: Consumer
         debug('Custom ID for consumer username ' + portalConsumer.consumer.username + ' matches: ' + portalConsumer.consumer.custom_id);
         return callback(null); // Nothing to do.
     }
-    debug('Updating Kong Consumer ' + kongConsumer.consumer.id + ' (username ' + kongConsumer.consumer.username + ') with new custom_id: ' + portalConsumer.consumer.custom_id);
+    info('Updating consumer ' + kongConsumer.consumer.id + ' (username ' + kongConsumer.consumer.username + ') with new custom_id: ' + portalConsumer.consumer.custom_id);
     utils.kongPatchConsumer(kongConsumer.consumer.id, {
         custom_id: portalConsumer.consumer.custom_id
     }, callback);
-}
-
-function deleteConsumerWithId(consumerId, callback) {
-    debug('deleteConsumerWithId(): ' + consumerId);
-    utils.kongDeleteConsumer(consumerId, callback);
 }
 
 /*
