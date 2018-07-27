@@ -421,8 +421,8 @@ function injectKeyAuth(api: ApiDescription): ApiDescription {
         throw new Error("If you use 'key-auth' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
     
     let hide_credentials = false;
-    if (api.settings.hide_credentials)
-        hide_credentials = api.settings.hide_credentials;
+    if (api.hide_credentials)
+        hide_credentials = api.hide_credentials;
   
     plugins.push({
         name: 'key-auth',
@@ -479,8 +479,8 @@ function injectOAuth2Auth(api: ApiDescription): void {
             enable_authorization_code = api.settings.enable_authorization_code;
         if (api.settings.enable_password_grant)
             enable_password_grant = api.settings.enable_password_grant;
-       if (api.settings.hide_credentials)
-            hide_credentials = api.settings.hide_credentials;
+        if (api.hide_credentials)
+            hide_credentials = api.hide_credentials;
     }
 
     plugins.push({
