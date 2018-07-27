@@ -380,12 +380,12 @@ export const kong = {
             if (err)
                 return callback(err);
             // Gracefully accept if already deleted
-            if (consumerList.total <= 0) {
-                console.error('Could not find user with custom_id ' + customId + ', cannot delete');
+            if (consumerList.data.length <= 0) {
+                warn('Could not find user with custom_id ' + customId + ', cannot delete');
                 return callback(null);
             }
-            if (consumerList.total > 1)
-                console.error('Multiple consumers with custom_id ' + customId + ' found, killing them all.');
+            if (consumerList.data.length > 1)
+                warn('Multiple consumers with custom_id ' + customId + ' found, killing them all.');
             // This should be just one call, but the consumer is in an array, so this does not hurt.
             info(`Deleting consumer ${customId}`);
             async.map(consumerList.data, (consumer, callback) => utils.kongDeleteConsumer(consumer.id, callback), function (err, results) {
@@ -487,7 +487,7 @@ function enrichConsumerPlugins(consumerInfo: ConsumerInfo, callback: Callback<Co
         utils.kongGetConsumerPluginData(consumerInfo.consumer.id, pluginName, function (err, pluginData) {
             if (err)
                 return callback(err);
-            if (pluginData.total > 0)
+            if (pluginData.data.length > 0)
                 consumerInfo.plugins[pluginName] = pluginData.data;
             return callback(null);
         });
