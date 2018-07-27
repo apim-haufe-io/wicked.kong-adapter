@@ -378,11 +378,16 @@ function injectKeyAuth(api) {
     const aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
     if (aclPlugin)
         throw new Error("If you use 'key-auth' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
+    
+    let hide_credentials = false;
+    if (api.settings.hide_credentials)
+        hide_credentials = api.settings.hide_credentials;
+  
     plugins.push({
         name: 'key-auth',
         enabled: true,
         config: {
-            hide_credentials: true,
+            hide_credentials: hide_credentials,
             key_names: [wicked.getApiKeyHeader()]
         }
     });
@@ -416,6 +421,7 @@ function injectOAuth2Auth(api) {
     let enable_implicit_grant = false;
     let enable_authorization_code = false;
     let enable_password_grant = false;
+    let hide_credentials = false;
     if (api.settings) {
         // Check overridden defaults
         if (api.settings.scopes)
@@ -432,6 +438,8 @@ function injectOAuth2Auth(api) {
             enable_authorization_code = api.settings.enable_authorization_code;
         if (api.settings.enable_password_grant)
             enable_password_grant = api.settings.enable_password_grant;
+       if (api.settings.hide_credentials)
+            hide_credentials = api.settings.hide_credentials;
     }
 
     plugins.push({
@@ -445,7 +453,7 @@ function injectOAuth2Auth(api) {
             enable_client_credentials: enable_client_credentials,
             enable_implicit_grant: enable_implicit_grant,
             enable_password_grant: enable_password_grant,
-            hide_credentials: true,
+            hide_credentials: hide_credentials,
             accept_http_if_already_terminated: true
         }
     });
