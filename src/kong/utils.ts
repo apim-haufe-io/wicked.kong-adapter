@@ -10,7 +10,7 @@ const path = require('path');
 const qs = require('querystring');
 const async = require('async');
 
-import { SyncStatistics } from "./types";
+import { SyncStatistics, ConsumerPlugin } from "./types";
 import { WickedGroupCollection, Callback, WickedApiPlanCollection, WickedApiPlan, KongApi, KongService, KongRoute, KongPlugin, ErrorCallback, ProtocolType, KongCollection, KongConsumer, KongGlobals, KongStatus } from "wicked-sdk";
 
 export function getUtc(): number {
@@ -545,9 +545,11 @@ export function kongPostApiPlugin(apiId: string, plugin: KongPlugin, callback: C
 
 export function kongPatchApiPlugin(apiId: string, pluginId: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
     debug(`kongPatchApiPlugin(${apiId}, ${plugin.name})`);
-    //kongPatch(`apis/${apiId}/plugins/${pluginId}`, plugin, callback);
-    if (plugin.service_id !== apiId)
-        throw new Error('PATCH API/Service Plugin: apiId does not match serviceId in plugin');
+    // //kongPatch(`apis/${apiId}/plugins/${pluginId}`, plugin, callback);
+    // if (plugin.service_id !== apiId)
+    //     throw new Error('PATCH API/Service Plugin: apiId does not match serviceId in plugin');
+    plugin.service_id = apiId;
+    plugin.id = pluginId;
     kongPatch(`plugins/${pluginId}`, plugin, callback);
 }
 
@@ -578,7 +580,7 @@ export function kongPostConsumer(consumer: KongConsumer, callback: Callback<Kong
     kongPost('consumers', consumer, callback);
 }
 
-export function kongPostConsumerPlugin(consumerId: string, pluginName: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
+export function kongPostConsumerPlugin(consumerId: string, pluginName: string, plugin: ConsumerPlugin, callback: Callback<KongPlugin>): void {
     kongPost(`consumers/${consumerId}/${pluginName}`, plugin, callback);
 }
 
