@@ -464,7 +464,6 @@ export function kongGetAllApis(callback: Callback<KongCollection<KongApi>>): voi
         }
 
         return callback(null, {
-            total: kongApis.length,
             data: kongApis
         });
     });
