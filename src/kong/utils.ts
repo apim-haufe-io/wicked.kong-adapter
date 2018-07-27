@@ -547,13 +547,15 @@ export function kongPostApiPlugin(apiId: string, plugin: KongPlugin, callback: C
 export function kongPatchApiPlugin(apiId: string, pluginId: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
     debug(`kongPatchApiPlugin(${apiId}, ${plugin.name})`);
     //kongPatch(`apis/${apiId}/plugins/${pluginId}`, plugin, callback);
-    kongPatch(`services/${apiId}/plugins/${pluginId}`, plugin, callback);
+    if (plugin.service_id !== apiId)
+        throw new Error('PATCH API/Service Plugin: apiId does not match serviceId in plugin');
+    kongPatch(`plugins/${pluginId}`, plugin, callback);
 }
 
 export function kongDeleteApiPlugin(apiId: string, pluginId: string, callback: ErrorCallback): void {
     debug(`kongDeleteApiPlugin(${apiId}, ${pluginId})`);
     //kongDelete(`apis/${apiId}/plugins/${pluginId}`, callback);
-    kongDelete(`services/${apiId}/plugins/${pluginId}`, callback);
+    kongDelete(`plugins/${pluginId}`, callback);
 }
 
 // Consumer functions
