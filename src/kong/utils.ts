@@ -56,7 +56,7 @@ export function getText(ob): string {
     return JSON.stringify(ob, null, 2);
 };
 
-export function clone(ob): object {
+export function clone(ob): any {
     return JSON.parse(JSON.stringify(ob));
 };
 
@@ -425,9 +425,9 @@ function kongGetRouteForService(serviceId: string, callback: Callback<KongRoute>
     kongGet(`services/${serviceId}/routes`, function (err, routes: KongCollection<KongRoute>) {
         if (err)
             return callback(err);
-        if (routes.total === 0)
+        if (routes.data.length === 0)
             return callback(null, null);
-        if (routes.total === 1)
+        if (routes.data.length === 1)
             return callback(null, routes.data[0]);
         warn(`kongGetRouteForService(${serviceId}): Multiple routes found, returning the first one.`);
         return callback(null, routes.data[0]);
@@ -464,7 +464,6 @@ export function kongGetAllApis(callback: Callback<KongCollection<KongApi>>): voi
         }
 
         return callback(null, {
-            total: kongApis.length,
             data: kongApis
         });
     });
@@ -547,20 +546,18 @@ export function kongPostApiPlugin(apiId: string, plugin: KongPlugin, callback: C
 export function kongPatchApiPlugin(apiId: string, pluginId: string, plugin: KongPlugin, callback: Callback<KongPlugin>): void {
     debug(`kongPatchApiPlugin(${apiId}, ${plugin.name})`);
     //kongPatch(`apis/${apiId}/plugins/${pluginId}`, plugin, callback);
-    kongPatch(`services/${apiId}/plugins/${pluginId}`, plugin, callback);
+    if (plugin.service_id !== apiId)
+        throw new Error('PATCH API/Service Plugin: apiId does not match serviceId in plugin');
+    kongPatch(`plugins/${pluginId}`, plugin, callback);
 }
 
 export function kongDeleteApiPlugin(apiId: string, pluginId: string, callback: ErrorCallback): void {
     debug(`kongDeleteApiPlugin(${apiId}, ${pluginId})`);
     //kongDelete(`apis/${apiId}/plugins/${pluginId}`, callback);
-    kongDelete(`services/${apiId}/plugins/${pluginId}`, callback);
+    kongDeletePlugin(pluginId, callback);
 }
 
 // Consumer functions
-export function kongGetConsumersByUsername(username: string, callback: Callback<KongCollection<KongConsumer>>): void {
-    kongGet('consumers?username=' + qs.escape(username), callback);
-}
-
 export function kongGetConsumersByCustomId(customId: string, callback: Callback<KongCollection<KongConsumer>>): void {
     kongGet('consumers?custom_id=' + qs.escape(customId), callback);
 }
@@ -605,4 +602,18 @@ export function kongGetGlobals(callback: Callback<KongGlobals>): void {
 
 export function kongGetStatus(callback: Callback<KongStatus>): void {
     kongGet('status', callback);
+}
+
+// Global Plugin functions
+
+export function kongGetPluginsByName(pluginName: string, callback: Callback<KongCollection<KongPlugin>>): void {
+    kongGet(`plugins?name=${qs.escape(pluginName)}&size=1000000`, callback);
+}
+
+export function kongPostGlobalPlugin(plugin: KongPlugin, callback: Callback<KongPlugin>): void {
+    kongPost('plugins', plugin, callback);
+}
+
+export function kongDeletePlugin(pluginId: string, callback: ErrorCallback): void {
+    kongDelete(`plugins/${pluginId}`, callback);
 }

@@ -4,24 +4,25 @@ const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:portal');
 import * as utils from './utils';
 import * as wicked from 'wicked-sdk';
-import { WickedSubscription, Callback, WickedApplication } from 'wicked-sdk';
+import { Callback, WickedApplication, WickedAuthServer, WickedError, KongPluginRequestTransformer, KongPluginCors, WickedApiPlanCollection, WickedApiPlan, WickedApiCollection, WickedApi, KongApiConfig } from 'wicked-sdk';
+import { ConsumerInfo, ApplicationData, ApiDescriptionCollection, ApiDescription } from './types';
 
 const MAX_PARALLEL_CALLS = 10;
 
 // ======== INTERFACE FUNCTIONS =======
 
 export const portal = {
-    getPortalApis: function (done) {
+    getPortalApis: function (callback: Callback<ApiDescriptionCollection>) {
         debug('getPortalApis()');
         async.parallel({
             getApis: callback => getActualApis(callback),
             getAuthServers: callback => getAuthServerApis(callback)
         }, function (err, results) {
             if (err)
-                return done(err);
+                return callback(err);
 
-            const apiList = results.getApis;
-            const authServerList = results.getAuthServers;
+            const apiList = results.getApis as WickedApiCollection;
+            const authServerList = results.getAuthServers as WickedAuthServer[];
 
             let portalHost = wicked.getExternalPortalUrl();
             if (!portalHost) {
@@ -39,8 +40,12 @@ export const portal = {
             apiList.apis.push(pingApi);
 
             // And the auth Servers please
-            for (let i = 0; i < authServerList.length; ++i)
-                apiList.apis.push(authServerList[i]);
+            for (let i = 0; i < authServerList.length; ++i) {
+                // TODO: This is not nice. The property "desc" is not present in authServerList, and thus
+                // it cannot be directly used as an ApiDescription object. But on the other hand, it contains
+                // everything else which we need (a KongApiConfig object)
+                apiList.apis.push(authServerList[i] as any as ApiDescription); 
+            }
 
             debug('getPortalApis():');
             debug(apiList);
@@ -48,10 +53,10 @@ export const portal = {
             try {
                 injectAuthPlugins(apiList);
             } catch (injectErr) {
-                return done(injectErr);
+                return callback(injectErr);
             }
 
-            return done(null, apiList);
+            return callback(null, apiList);
         });
     },
 
@@ -94,9 +99,9 @@ export const portal = {
      * 
      * One app can have multiple consumers (one per subscription).
      */
-    getAppConsumers: function (appId, callback) {
+    getAppConsumers: function (appId, callback: Callback<ConsumerInfo[]>) {
         debug('getPortalConsumersForApp() ' + appId);
-        const applicationList = [{ id: appId }];
+        const applicationList = [{ id: appId, ownerList: [], name: appId }];
         async.waterfall([
             callback => utils.getPlans(callback),
             (apiPlans, callback) => enrichApplications(applicationList, apiPlans, callback)
@@ -107,7 +112,7 @@ export const portal = {
         });
     },
 
-    getAllPortalConsumers: function (callback) {
+    getAllPortalConsumers: function (callback: Callback<ConsumerInfo[]>) {
         debug('getAllPortalConsumers()');
         return getAllAppConsumers(callback);
     },
@@ -116,15 +121,16 @@ export const portal = {
 
 // INTERNAL FUNCTIONS/HELPERS
 
-function getActualApis(callback) {
+function getActualApis(callback: Callback<ApiDescriptionCollection>) {
     debug('getActualApis()');
     wicked.getApis(function (err, apiList) {
         if (err)
             return callback(err);
         // Get the group list from wicked
         const groups = utils.getGroups().groups;
-        // Make the scope lists Kong compatible (wicked has more info than Kong)
+        // HACK_SCOPES: Make the scope lists Kong compatible (wicked has more info than Kong)
         for (let i = 0; i < apiList.apis.length; ++i) {
+            // HACK_SCOPES: This cast is needed to allow changing the scopes to a simple string array (instead of the structure wicked uses).
             const api = apiList.apis[i] as any;
             if (api.auth === 'oauth2' && api.settings) {
                 if (api.settings.scopes) {
@@ -144,8 +150,8 @@ function getActualApis(callback) {
             }
         }
         // Enrich apiList with the configuration.
-        async.eachLimit(apiList.apis, MAX_PARALLEL_CALLS, function (apiDef, callback) {
-            wicked.getApiConfig(apiDef.id, function (err, apiConfig) {
+        async.eachLimit(apiList.apis, MAX_PARALLEL_CALLS, function (apiDef: ApiDescription, callback) {
+            wicked.getApiConfig(apiDef.id, function (err, apiConfig: KongApiConfig) {
                 if (err)
                     return callback(err);
                 apiDef.config = checkApiConfig(apiConfig);
@@ -159,23 +165,44 @@ function getActualApis(callback) {
     });
 }
 
-function getAuthServerApis(callback) {
+function getAuthServerApis(callback: Callback<WickedAuthServer[]>) {
     debug('getAuthServerApis()');
     wicked.getAuthServerNames(function (err, authServerNames) {
         if (err)
             return callback(err);
         async.mapLimit(authServerNames, MAX_PARALLEL_CALLS, function (authServerName, callback) {
             wicked.getAuthServer(authServerName, callback);
-        }, function (err, authServers) {
+        }, function (err, authServers: WickedAuthServer[]) {
             if (err)
                 return callback(err);
             debug(JSON.stringify(authServers, null, 2));
+            // Fix auth server and API auth server IDs; also adapt
+            // the upstream_url (canonicalize it).
+            for (let i = 0; i < authServers.length; ++i) {
+                const as = authServers[i] as WickedAuthServer;
+                const id = `${authServerNames[i]}-auth`;
+                as.id = id;
+                if (as.config.api.hasOwnProperty('id'))
+                    delete as.config.api.id;
+                as.config.api.name = id;
+
+                try {
+                    const url = new URL(as.config.api.upstream_url);
+                    as.config.api.upstream_url = url.toString();
+                } catch (err) {
+                    const msg =  `getAuthServerApis(): upstream_url for auth server ${authServerNames[i]} is not a valid URL: ${as.config.api.upstream_url}`;
+                    return callback(new WickedError(msg, 500));
+                }
+
+                checkApiConfig(as.config);
+            }
             callback(null, authServers);
         });
     });
 }
 
-function checkApiConfig(apiConfig) {
+function checkApiConfig(apiConfig: KongApiConfig): KongApiConfig {
+    debug('checkApiConfig()');
     if (apiConfig.plugins) {
         for (let i = 0; i < apiConfig.plugins.length; ++i) {
             const plugin = apiConfig.plugins[i];
@@ -184,7 +211,10 @@ function checkApiConfig(apiConfig) {
 
             switch (plugin.name.toLowerCase()) {
                 case "request-transformer":
-                    checkRequestTransformerPlugin(apiConfig, plugin);
+                    checkRequestTransformerPlugin(apiConfig, plugin as KongPluginRequestTransformer);
+                    break;
+                case "cors":
+                    checkCorsPlugin(plugin as KongPluginCors);
                     break;
             }
         }
@@ -192,7 +222,8 @@ function checkApiConfig(apiConfig) {
     return apiConfig;
 }
 
-function checkRequestTransformerPlugin(apiConfig, plugin) {
+function checkRequestTransformerPlugin(apiConfig: KongApiConfig, plugin: KongPluginRequestTransformer): void {
+    debug('checkRequestTransformerPlugin()');
     if (plugin.config &&
         plugin.config.add &&
         plugin.config.add.headers) {
@@ -219,8 +250,18 @@ function checkRequestTransformerPlugin(apiConfig, plugin) {
     }
 }
 
+function checkCorsPlugin(plugin: KongPluginCors): void {
+    debug('checkCorsPlugin()');
+    if (plugin.config && 
+        plugin.config.origins) {
+        if (typeof (plugin.config.origins) === 'string') {
+            warn(`Detected faulty type of CORS config.origins property, converting to array.`);
+            plugin.config.origins = [plugin.config.origins];
+        }
+    }
+}
 
-function getAllAppConsumers(callback) {
+function getAllAppConsumers(callback: Callback<ConsumerInfo[]>): void {
     debug('getAllAppConsumers()');
     async.parallel({
         apiPlans: callback => utils.getPlans(callback),
@@ -229,8 +270,8 @@ function getAllAppConsumers(callback) {
         if (err)
             return callback(err);
 
-        const applicationList = results.applicationList.items;
-        const apiPlans = results.apiPlans;
+        const applicationList = results.applicationList.items as WickedApplication[];
+        const apiPlans = results.apiPlans as WickedApiPlanCollection;
 
         enrichApplications(applicationList, apiPlans, callback);
     });
@@ -241,7 +282,7 @@ function getAllAppConsumers(callback) {
 //    application: { id: ,... }
 //    subscriptions: [ ... ]
 // }
-function getApplicationData(appId: string, callback: Callback<{ subscriptions: WickedSubscription[], application: WickedApplication }>): void {
+function getApplicationData(appId: string, callback: Callback<ApplicationData>): void {
     debug('getApplicationData() ' + appId);
     async.parallel({
         subscriptions: callback => wicked.getSubscriptions(appId, function (err, subsList) {
@@ -273,13 +314,13 @@ function getApplicationData(appId: string, callback: Callback<{ subscriptions: W
     });
 }
 
-function enrichApplications(applicationList, apiPlans, done) {
+function enrichApplications(applicationList: WickedApplication[], apiPlans: WickedApiPlanCollection, callback: Callback<ConsumerInfo[]>) {
     debug('enrichApplications(), applicationList = ' + utils.getText(applicationList));
     async.mapLimit(applicationList, MAX_PARALLEL_CALLS, function (appInfo, callback) {
         getApplicationData(appInfo.id, callback);
     }, function (err, results) {
         if (err)
-            return done(err);
+            return callback(err);
 
         const consumerList = [];
         for (let resultIndex = 0; resultIndex < results.length; ++resultIndex) {
@@ -292,7 +333,7 @@ function enrichApplications(applicationList, apiPlans, done) {
                     continue;
 
                 debug(utils.getText(appSubs));
-                const consumerInfo: any = {
+                const consumerInfo: ConsumerInfo = {
                     consumer: {
                         username: utils.makeUserName(appSubs.application, appSubs.api),
                         custom_id: appSubs.id
@@ -319,14 +360,14 @@ function enrichApplications(applicationList, apiPlans, done) {
                     }];
                 } else {
                     let err2 = new Error('Unknown auth strategy: ' + appSubs.auth + ', for application "' + appSubs.application + '", API "' + appSubs.api + '".');
-                    return done(err2);
+                    return callback(err2);
                 }
 
                 // Now the API level plugins from the Plan
                 const apiPlan = getPlanById(apiPlans, appSubs.plan);
                 if (!apiPlan) {
                     const err = new Error('Unknown API plan strategy: ' + appSubs.plan + ', for application "' + appSubs.application + '", API "' + appSubs.api + '".');
-                    return done(err);
+                    return callback(err);
                 }
 
                 if (apiPlan.config && apiPlan.config.plugins)
@@ -340,18 +381,18 @@ function enrichApplications(applicationList, apiPlans, done) {
 
         debug(utils.getText(consumerList));
 
-        return done(null, consumerList);
+        return callback(null, consumerList);
     });
 }
 
-function getPlanById(apiPlans, planId) {
+function getPlanById(apiPlans: WickedApiPlanCollection, planId: string): WickedApiPlan {
     debug('getPlanById(' + planId + ')');
     return apiPlans.plans.find(function (plan) { return (plan.id == planId); });
 }
 
 // ======== INTERNAL FUNCTIONS =======
 
-function injectAuthPlugins(apiList) {
+function injectAuthPlugins(apiList: ApiDescriptionCollection) {
     debug('injectAuthPlugins()');
     for (let i = 0; i < apiList.apis.length; ++i) {
         const thisApi = apiList.apis[i];
@@ -367,7 +408,7 @@ function injectAuthPlugins(apiList) {
     }
 }
 
-function injectKeyAuth(api) {
+function injectKeyAuth(api: ApiDescription): ApiDescription {
     debug('injectKeyAuth()');
     if (!api.config.plugins)
         api.config.plugins = [];
@@ -401,7 +442,7 @@ function injectKeyAuth(api) {
     return api;
 }
 
-function injectOAuth2Auth(api) {
+function injectOAuth2Auth(api: ApiDescription): void {
     debug('injectImplicitAuth()');
     if (!api.config.plugins)
         api.config.plugins = [];
@@ -425,7 +466,7 @@ function injectOAuth2Auth(api) {
     if (api.settings) {
         // Check overridden defaults
         if (api.settings.scopes)
-            scopes = api.settings.scopes;
+            scopes = api.settings.scopes as any; // This is correct; this is a hack further above. Search for "HACK_SCOPES"
         if (api.settings.mandatory_scope)
             mandatory_scope = api.settings.mandatory_scope;
         if (api.settings.token_expiration)

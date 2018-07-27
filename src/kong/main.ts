@@ -47,15 +47,15 @@ export const kongMain = {
                 } else {
                     callback(null);
                 }
+            },
+            addPrometheusPlugin: function (callback) {
+                sync.addPrometheusPlugin(callback);
             }
         }, function (err) {
             if (err) {
                 return done(err);
             }
-            debug("kong.init() done.");
-            console.log('=========================================');
-            console.log('========== INITIALIZATION DONE ==========');
-            console.log('=========================================');
+            info('INITIALIZATION DONE');
             done(null);
         });
     },
@@ -140,11 +140,13 @@ function dispatchWebhookAction(webhookData, onlyDelete, callback) {
 }
 
 function syncAppConsumers(appId, callback) {
+    info(`Syncing consumers for wicked application ${appId}`);
     // Relay to sync
     sync.syncAppConsumers(appId, callback);
 }
 
 function deleteAppConsumers(appId, subscriptionList, callback) {
+    info(`Deleting all consumers associated with wicked application ${appId}`);
     // Just relay
     sync.deleteAppConsumers(appId, subscriptionList, callback);
 }
@@ -159,6 +161,8 @@ function deleteAppSubscriptionConsumer(webhookSubsInfo, callback) {
         userId: webhookSubsInfo.userId,
         auth: webhookSubsInfo.auth
     };
+    info(`Deleting cosumers associated with a subscription: ${subsInfo.application} subscribed to API ${subsInfo.api}`);
+
     sync.deleteAppSubscriptionConsumer(subsInfo, callback);
 }
 
