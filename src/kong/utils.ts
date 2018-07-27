@@ -56,7 +56,7 @@ export function getText(ob): string {
     return JSON.stringify(ob, null, 2);
 };
 
-export function clone(ob): object {
+export function clone(ob): any {
     return JSON.parse(JSON.stringify(ob));
 };
 
@@ -559,10 +559,6 @@ export function kongDeleteApiPlugin(apiId: string, pluginId: string, callback: E
 }
 
 // Consumer functions
-export function kongGetConsumersByUsername(username: string, callback: Callback<KongCollection<KongConsumer>>): void {
-    kongGet('consumers?username=' + qs.escape(username), callback);
-}
-
 export function kongGetConsumersByCustomId(customId: string, callback: Callback<KongCollection<KongConsumer>>): void {
     kongGet('consumers?custom_id=' + qs.escape(customId), callback);
 }

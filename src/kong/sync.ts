@@ -9,7 +9,8 @@ import * as wicked from 'wicked-sdk';
 
 import { kong } from './kong';
 import { portal } from './portal';
-import { ErrorCallback } from 'wicked-sdk';
+import { ErrorCallback, KongApiConfig } from 'wicked-sdk';
+import { ApiDescriptionCollection, KongApiConfigCollection, ApiDescription, UpdateApiItem, AddApiItem, DeleteApiItem, ApiTodos, PluginTodos, AddPluginItem, UpdatePluginItem, DeletePluginItem, ConsumerInfo, UpdateConsumerItem, DeleteConsumerItem, AddConsumerItem, ConsumerTodos, ConsumerApiPluginTodos, ConsumerApiPluginAddItem, ConsumerApiPluginPatchItem, ConsumerApiPluginDeleteItem } from './types';
 
 const MAX_ASYNC_CALLS = 10;
 
@@ -24,8 +25,8 @@ export const sync = {
         }, function (err, results) {
             if (err)
                 return done(err);
-            const portalApis = results.portalApis;
-            const kongApis = results.kongApis;
+            const portalApis = results.portalApis as ApiDescriptionCollection;
+            const kongApis = results.kongApis as KongApiConfigCollection;
 
             const todoLists = assembleApiTodoLists(portalApis, kongApis);
             debug('Infos on sync APIs todo list:');
@@ -54,7 +55,7 @@ export const sync = {
         });
     },
 
-    syncPlugins: function (portalApi, kongApi, done) {
+    syncPlugins: function (portalApi: ApiDescription, kongApi: KongApiConfig, callback: ErrorCallback): void {
         debug('syncPlugins()');
         const todoLists = assemblePluginTodoLists(portalApi, kongApi);
         //debug(utils.getText(todoLists));
@@ -82,9 +83,9 @@ export const sync = {
             }
         }, function (err) {
             if (err)
-                return done(err);
+                return callback(err);
             debug("sync.syncPlugins() done.");
-            return done(null);
+            return callback(null);
         });
     },
 
@@ -177,18 +178,18 @@ export const sync = {
     }
 };
 
-function syncConsumers(portalConsumers, done) {
+function syncConsumers(portalConsumers: ConsumerInfo[], callback: ErrorCallback) {
     if (portalConsumers.length === 0) {
         debug('syncConsumers() - nothing to do (empty consumer list).');
-        setTimeout(done, 0);
+        setTimeout(callback, 0);
         return;
     }
     debug('syncConsumers()');
     // Get the corresponding Kong consumers
     kong.getKongConsumers(portalConsumers, function (err, resultConsumers) {
         if (err)
-            return done(err);
-        const kongConsumers = [];
+            return callback(err);
+        const kongConsumers = [] as ConsumerInfo[];
         for (let i = 0; i < resultConsumers.length; ++i) {
             if (resultConsumers[i])
                 kongConsumers.push(resultConsumers[i]);
@@ -214,20 +215,20 @@ function syncConsumers(portalConsumers, done) {
             }
         }, function (err, results) {
             if (err)
-                return done(err);
+                return callback(err);
             debug('syncConsumers() done.');
-            return done(null);
+            return callback(null);
         });
     });
 }
 
 // ========= INTERNALS ===========
 
-function assembleApiTodoLists(portalApis, kongApis) {
+function assembleApiTodoLists(portalApis: ApiDescriptionCollection, kongApis: KongApiConfigCollection): ApiTodos {
     debug('assembleApiTodoLists()');
-    const updateList = [];
-    const addList = [];
-    const deleteList = [];
+    const updateList: UpdateApiItem[] = [];
+    const addList: AddApiItem[] = [];
+    const deleteList: DeleteApiItem[] = [];
 
     const handledKongApis = {};
 
@@ -288,11 +289,11 @@ function shouldIgnore(name) {
     return false;
 }
 
-function assemblePluginTodoLists(portalApi, kongApi) {
+function assemblePluginTodoLists(portalApi: ApiDescription, kongApi: KongApiConfig): PluginTodos {
     debug('assemblePluginTodoLists()');
-    const addList = [];
-    const updateList = [];
-    const deleteList = [];
+    const addList = [] as AddPluginItem[];
+    const updateList = [] as UpdatePluginItem[];
+    const deleteList = [] as DeletePluginItem[];
 
     const handledKongPlugins = {};
     for (let i = 0; i < portalApi.config.plugins.length; ++i) {
@@ -307,13 +308,12 @@ function assemblePluginTodoLists(portalApi, kongApi) {
         } else {
             let kongPlugin = kongApi.plugins[kongPluginIndex];
             if (!utils.matchObjects(portalPlugin, kongPlugin) && !shouldIgnore(kongPlugin.name)) {
-                updateList.push(
-                    {
-                        portalApi: portalApi,
-                        portalPlugin: portalPlugin,
-                        kongApi: kongApi,
-                        kongPlugin: kongPlugin
-                    });
+                updateList.push({
+                    portalApi: portalApi,
+                    portalPlugin: portalPlugin,
+                    kongApi: kongApi,
+                    kongPlugin: kongPlugin
+                });
             } // Else: Matches, all is good
             handledKongPlugins[kongPlugin.name] = true;
         }
@@ -337,16 +337,26 @@ function assemblePluginTodoLists(portalApi, kongApi) {
     };
 }
 
-function assembleConsumerTodoLists(portalConsumers, kongConsumers) {
+function assembleConsumerTodoLists(portalConsumers: ConsumerInfo[], kongConsumers: ConsumerInfo[]): ConsumerTodos {
     debug('assembleConsumerTodoLists()');
-    const addList = [];
-    const updateList = [];
-    const deleteList = [];
+    const addList = [] as AddConsumerItem[];
+    const updateList = [] as UpdateConsumerItem[];
+    const deleteList = [] as DeleteConsumerItem[];
 
     const handledKongConsumers = {};
+    const kongConsumerMap = new Map<string, ConsumerInfo>();
+    // Speed up consumer checking to O(n) instead of O(n^2)
+    for (let i = 0; i < kongConsumers.length; ++i) {
+        const c = kongConsumers[i];
+        kongConsumerMap.set(c.consumer.username, c);
+    }
+
     for (let i = 0; i < portalConsumers.length; ++i) {
         let portalConsumer = portalConsumers[i];
-        let kongConsumer = kongConsumers.find(function (kongConsumer) { return portalConsumer.consumer.username == kongConsumer.consumer.username; });
+        let kongConsumer;
+        const u = portalConsumer.consumer.username;
+        if (kongConsumerMap.has(u))
+            kongConsumer = kongConsumerMap.get(u);
         if (!kongConsumer) {
             debug('Username "' + portalConsumer.consumer.username + '" in portal, but not in Kong, add needed.');
             // Not found
@@ -385,11 +395,11 @@ function assembleConsumerTodoLists(portalConsumers, kongConsumers) {
     };
 }
 
-function assembleConsumerApiPluginsTodoLists(portalConsumer, kongConsumer) {
+function assembleConsumerApiPluginsTodoLists(portalConsumer: ConsumerInfo, kongConsumer: ConsumerInfo): ConsumerApiPluginTodos {
     debug('assembleConsumerApiPluginsTodoLists()');
-    const addList = [];
-    const patchList = [];
-    const deleteList = [];
+    const addList = [] as ConsumerApiPluginAddItem[];
+    const patchList = [] as ConsumerApiPluginPatchItem[];
+    const deleteList = [] as ConsumerApiPluginDeleteItem[];
     const handledPlugins = {};
     for (let i = 0; i < portalConsumer.apiPlugins.length; ++i) {
         let portalApiPlugin = portalConsumer.apiPlugins[i];
