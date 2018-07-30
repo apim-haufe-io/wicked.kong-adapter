@@ -6,7 +6,7 @@ const qs = require('querystring');
 
 import * as utils from './utils';
 import { KongCollection, KongConsumer, KongPlugin, Callback, ErrorCallback, KongApiConfig } from 'wicked-sdk';
-import { KongApiConfigCollection, UpdateApiItem, DeleteApiItem, AddApiItem, AddPluginItem, UpdatePluginItem, DeletePluginItem, ConsumerInfo, AddConsumerItem, UpdateConsumerItem, ConsumerApiPluginAddItem, ConsumerApiPluginPatchItem, ConsumerApiPluginDeleteItem, ConsumerPlugin } from './types';
+import { KongApiConfigCollection, UpdateApiItem, DeleteApiItem, AddApiItem, AddPluginItem, UpdatePluginItem, DeletePluginItem, ConsumerInfo, AddConsumerItem, UpdateConsumerItem, DeleteConsumerItem, ConsumerApiPluginAddItem, ConsumerApiPluginPatchItem, ConsumerApiPluginDeleteItem, ConsumerPlugin } from './types';
 
 // The maximum number of async I/O calls we fire off against
 // the Kong instance for one single call.
@@ -262,6 +262,27 @@ export const kong = {
             });
     },
 
+    getAllKongConsumers: function (callback: Callback<ConsumerInfo[]>): void {
+        debug('getAllKongConsumers()');
+        utils.kongGetAllConsumers(function (err, allConsumers) {
+            if (err)
+                return callback(err);
+            const kongConsumerInfos: ConsumerInfo[] = [];
+            async.eachLimit(allConsumers.data, MAX_PARALLEL_CALLS, function (kongConsumer: KongConsumer, callback) {
+                enrichConsumerInfo(kongConsumer, function (err, consumerInfo) {
+                    if (err)
+                        return callback(err);
+                    kongConsumerInfos.push(consumerInfo);
+                    return callback(null);
+                });
+            }, function (err) {
+                if (err)
+                    return callback(err);
+                return callback(null, kongConsumerInfos);
+            });
+        });
+    },
+
     addKongConsumerApiPlugins: function (addList: ConsumerApiPluginAddItem[], consumerId: string, done: ErrorCallback) {
         // Bail out early if list empty
         if (addList.length === 0) {
@@ -355,6 +376,16 @@ export const kong = {
             debug("updateKongConsumers() finished.");
             callback(null);
         });
+    },
+
+    deleteKongConsumers: function (deleteList: DeleteConsumerItem[], callback: ErrorCallback) {
+        debug('deleteKongConsumers()');
+
+        async.eachLimit(deleteList, MAX_PARALLEL_CALLS, function (deleteItem: DeleteConsumerItem, callback) {
+            const consumerId = deleteItem.kongConsumer.consumer.id;
+            info(`Deleting consumer with ID ${consumerId}`);
+            utils.kongDeleteConsumer(consumerId, callback);
+        }, callback);
     },
 
     deleteConsumerWithUsername: function (username: string, callback: ErrorCallback): void {

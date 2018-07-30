@@ -93,10 +93,14 @@ export const sync = {
 
     syncAllConsumers: function (callback) {
         debug('syncAllConsumers()');
-        portal.getAllPortalConsumers(function (err, portalConsumers) {
+        async.parallel({
+            portalConsumers: callback => portal.getAllPortalConsumers(callback),
+            kongConsumers: callback => kong.getAllKongConsumers(callback)
+        }, function (err, result) {
             if (err)
                 return callback(err);
-            syncConsumers(portalConsumers, callback);
+            info(`Syncing ${result.portalConsumers.length} portal consumers with ${result.kongConsumers.length} Kong consumers.`);
+            syncConsumers(result.portalConsumers, result.kongConsumers, callback);
         });
     },
 
@@ -104,7 +108,7 @@ export const sync = {
         debug('syncAppConsumers(): ' + appId);
         async.waterfall([
             callback => portal.getAppConsumers(appId, callback), // One app may result in multiple consumers (one per subscription)
-            (appConsumers, callback) => syncConsumers(appConsumers, callback)
+            (appConsumers, callback) => syncAppConsumers(appConsumers, callback)
         ], function (err) {
             if (err)
                 return callback(err);
@@ -196,13 +200,13 @@ export const sync = {
     }
 };
 
-function syncConsumers(portalConsumers: ConsumerInfo[], callback: ErrorCallback) {
+function syncAppConsumers(portalConsumers: ConsumerInfo[], callback: ErrorCallback): void {
     if (portalConsumers.length === 0) {
-        debug('syncConsumers() - nothing to do (empty consumer list).');
+        debug('syncAppConsumers() - nothing to do (empty consumer list).');
         setTimeout(callback, 0);
         return;
     }
-    debug('syncConsumers()');
+    debug('syncAppConsumers()');
     // Get the corresponding Kong consumers
     kong.getKongConsumers(portalConsumers, function (err, resultConsumers) {
         if (err)
@@ -212,31 +216,33 @@ function syncConsumers(portalConsumers: ConsumerInfo[], callback: ErrorCallback)
             if (resultConsumers[i])
                 kongConsumers.push(resultConsumers[i]);
         }
+        syncConsumers(portalConsumers, kongConsumers, callback);
+    });
+}
 
-        debug('syncConsumers(): Creating Todo lists.');
-        const todoLists = assembleConsumerTodoLists(portalConsumers, kongConsumers);
-        debug('Infos on sync consumers todo list:');
-        debug('  add items: ' + todoLists.addList.length);
-        debug('  update items: ' + todoLists.updateList.length);
-        debug('  delete items: ' + todoLists.deleteList.length);
+function syncConsumers(portalConsumers: ConsumerInfo[], kongConsumers: ConsumerInfo[], callback: ErrorCallback) {
+    if (portalConsumers.length === 0 && kongConsumers.length === 0) {
+        debug('syncConsumers() - nothing to do (empty consumer lists).');
+        setTimeout(callback, 0);
+        return;
+    }
+    debug('syncConsumers()');
+    debug('syncConsumers(): Creating Todo lists.');
+    const todoLists = assembleConsumerTodoLists(portalConsumers, kongConsumers);
+    debug('Infos on sync consumers todo list:');
+    debug('  add items: ' + todoLists.addList.length);
+    debug('  update items: ' + todoLists.updateList.length);
+    debug('  delete items: ' + todoLists.deleteList.length);
 
-        async.series({
-            addConsumers: callback => kong.addKongConsumers(todoLists.addList, callback),
-            updateConsumers: callback => kong.updateKongConsumers(sync, todoLists.updateList, callback), // Will call syncConsumerApiPlugins
-            deleteConsumers: function (callback) {
-                if (todoLists.deleteList.length > 0) {
-                    console.error(todoLists.deleteList);
-                    throw new Error('deleteConsumer in sync.syncConsumers() must not be called anymore.');
-                }
-                setTimeout(callback, 0);
-                //kong.deleteKongConsumers(todoLists.deleteList, callback);
-            }
-        }, function (err, results) {
-            if (err)
-                return callback(err);
-            debug('syncConsumers() done.');
-            return callback(null);
-        });
+    async.series({
+        addConsumers: callback => kong.addKongConsumers(todoLists.addList, callback),
+        updateConsumers: callback => kong.updateKongConsumers(sync, todoLists.updateList, callback), // Will call syncConsumerApiPlugins
+        deleteConsumers: callback => kong.deleteKongConsumers(todoLists.deleteList, callback)
+    }, function (err, results) {
+        if (err)
+            return callback(err);
+        info('syncConsumers() done.');
+        return callback(null);
     });
 }
 

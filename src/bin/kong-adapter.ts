@@ -30,7 +30,7 @@ server.listen(port);
 server.on('error', onError);
 server.on('listening', onListening);
 
-debug('Waiting for API to be available.');
+info('Waiting for API to be available.');
 
 app.apiAvailable = false;
 app.kongAvailable = false;
@@ -49,7 +49,7 @@ async.series([
 ], function (err) {
     debug('Kong and API await finished.');
     if (err) {
-        debug('Failed waiting for API and/or Kong.');
+        error('Failed waiting for API and/or Kong.');
         throw err;
     }
 
@@ -65,7 +65,7 @@ async.series([
     kongMain.init(initOptions, function (err) {
         debug('kong.init() returned.');
         if (err) {
-            debug('Could not initialize Kong adapter.');
+            error('Could not initialize Kong adapter.');
             throw err;
         }
 
@@ -77,7 +77,7 @@ async.series([
             });
         });
 
-        debug("Kong Adapter initialization done.");
+        info("Kong Adapter initialization done.");
         app.initialized = true;
     });
 });

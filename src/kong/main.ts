@@ -6,7 +6,7 @@ const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:
 import * as wicked from 'wicked-sdk';
 import * as utils from './utils';
 import { sync } from './sync';
-import { WickedEvent, WickedWebhookListener, WickedGlobals } from 'wicked-sdk';
+import { WickedEvent, WickedWebhookListener, WickedGlobals, Callback } from 'wicked-sdk';
 
 const MAX_ASYNC_CALLS = 10;
 
@@ -25,6 +25,9 @@ export const kongMain = {
                     callback(null);
                 }
             },
+            flushEvents: function (callback) {
+                wicked.flushWebhookEvents('kong-adapter', callback);
+            },
             syncApis: function (callback) {
                 if (options.syncApis) {
                     debug('Calling sync.syncApis()');
@@ -33,16 +36,9 @@ export const kongMain = {
                     callback(null);
                 }
             },
-            processPendingEvents: function (callback) {
-                if (options.syncConsumers) {
-                    processPendingWebhooks(callback);
-                } else {
-                    callback(null);
-                }
-            },
             syncConsumers: function (callback) {
                 if (options.syncConsumers) {
-                    debug('Calling sync.syncConsumers()');
+                    debug('Calling sync.syncAllConsumers()');
                     sync.syncAllConsumers(callback);
                 } else {
                     callback(null);
@@ -50,7 +46,14 @@ export const kongMain = {
             },
             addPrometheusPlugin: function (callback) {
                 sync.addPrometheusPlugin(callback);
-            }
+            },
+            processPendingEvents: function (callback) {
+                if (options.syncConsumers) {
+                    processPendingWebhooks(callback);
+                } else {
+                    callback(null);
+                }
+            },
         }, function (err) {
             if (err) {
                 return done(err);
@@ -68,10 +71,27 @@ export const kongMain = {
         kongMain.init(initOptions, done);
     },
 
-    processWebhooks: function (webhookList, done) {
+    processWebhooks: function (callback) {
         debug('processWebhooks()');
+        info(`Processing events.`);
         const onlyDelete = false;
-        async.eachSeries(webhookList, (webhookData, callback) => dispatchWebhookAction(webhookData, onlyDelete, callback), done);
+
+        //async.eachSeries(webhookList, (webhookData, callback) => dispatchWebhookAction(webhookData, onlyDelete, callback), done);
+        info('Starting processing pending webhooks.');
+        processPendingWebhooks(function (err, foundEvents) {
+            if (err) {
+                error('ERROR - Could not process all webhooks! This is bad!');
+                error(err);
+                return callback(err);
+            }
+            if (foundEvents) {
+                info('Finished processing events, checking for more events.');
+                return kongMain.processWebhooks(callback);
+            }
+
+            info('Finished processing events, currently there are no more events.');
+            return callback(null, false);
+        });
     },
 
     deinit: function (done) {
@@ -82,22 +102,37 @@ export const kongMain = {
     }
 };
 
-
-function processPendingWebhooks(done) {
+function processPendingWebhooks(callback: Callback<boolean>) {
     debug('processPendingWebhooks()');
+    const now = new Date().getTime();
     wicked.getWebhookEvents('kong-adapter', function (err, pendingEvents) {
-        if (err)
-            return done(err);
-        const onlyDelete = true;
-        if (!containsImportEvent(pendingEvents)) {
-            async.eachSeries(pendingEvents, (webhookData, callback) => dispatchWebhookAction(webhookData, onlyDelete, callback), done);
-        } else {
-            // we have seen an import since we last lived; wipe consumers, re-sync them, and acknowledge everything.
-            async.series([
-                callback => doPostImport(callback),
-                callback => acknowledgeEvents(pendingEvents, callback)
-            ], done);
+        if (err) {
+            error('COULD NOT RETRIEVE WEBHOOKS')
+            return callback(err);
         }
+        const duration = (new Date().getTime() - now);
+        debug(`processPendingWebhooks: Retrieved ${pendingEvents.length} events in ${duration}ms`);
+        const onlyDelete = false;
+        if (pendingEvents.length === 0)
+            return callback(null, false);
+
+        async.eachSeries(pendingEvents, (webhookData: WickedEvent, callback) => {
+            const now = new Date().getTime();
+            dispatchWebhookAction(webhookData, onlyDelete, function (err) {
+                const duration = (new Date().getTime() - now);
+                debug(`processPendingWebhooks: Processed ${webhookData.action} ${webhookData.entity} event in ${duration}ms`);
+                if (err)
+                    return callback(err);
+                return callback(null);
+            });
+        }, function (err) {
+            if (err) {
+                error('An error occurred during dispatching events.');
+                error(err);
+                return callback(err);
+            }
+            return callback(null, true);
+        });
     });
 }
 
@@ -112,7 +147,7 @@ function dispatchWebhookAction(webhookData, onlyDelete, callback) {
     debug('dispatchWebhookAction()');
     const action = webhookData.action;
     const entity = webhookData.entity;
-    debug('action = ' + action + ', entity = ' + entity);
+    info(`Process action ${action} for entity ${entity}`);
     let syncAction = null;
     if (entity === 'application' && (action === 'add' || action === 'update') && !onlyDelete)
         syncAction = callback => syncAppConsumers(webhookData.data.applicationId, callback);
@@ -122,8 +157,8 @@ function dispatchWebhookAction(webhookData, onlyDelete, callback) {
         syncAction = callback => syncAppConsumers(webhookData.data.applicationId, callback);
     else if (entity === 'subscription' && action === 'delete')
         syncAction = callback => deleteAppSubscriptionConsumer(webhookData.data, callback);
-    else if (entity === 'import') // Woooo!
-        syncAction = callback => doPostImport(callback);
+    else
+        debug(`Discarding event ${action} ${entity}.`)
 
     async.series([
         callback => {
@@ -133,8 +168,12 @@ function dispatchWebhookAction(webhookData, onlyDelete, callback) {
         },
         callback => acknowledgeEvent(webhookData.id, callback)
     ], function (err) {
-        if (err)
+        if (err) {
+            error('SYNC ACTION FAILED!');
+            error(err);
             return callback(err);
+        }
+        debug(`dispatchWebhookAction successfully returned for action ${action} ${entity}`);
         callback(null);
     });
 }
@@ -166,21 +205,12 @@ function deleteAppSubscriptionConsumer(webhookSubsInfo, callback) {
     sync.deleteAppSubscriptionConsumer(subsInfo, callback);
 }
 
-function acknowledgeEvents(eventList: WickedEvent[], done) {
-    debug('acknowledgeEvents()');
-    async.mapLimit(eventList, MAX_ASYNC_CALLS, (event, callback) => acknowledgeEvent(event.id, callback), done);
-}
-
 function acknowledgeEvent(eventId, callback) {
-    wicked.deleteWebhookEvent('kong-adapter', eventId, callback);
-}
-
-function doPostImport(done) {
-    debug('doPostImport()');
-    async.series([
-        callback => sync.wipeAllConsumers(callback),
-        callback => sync.syncAllConsumers(callback)
-    ], done);
+    debug(`acknowledgeEvent(${eventId})`);
+    wicked.deleteWebhookEvent('kong-adapter', eventId, function (err) {
+        debug('deleteWebhookEvent returned');
+        callback(null);
+    });
 }
 
 // ====== INTERNALS =======

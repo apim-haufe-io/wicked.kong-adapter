@@ -35,13 +35,12 @@ app.post('/', function (req, res, next) {
     if (!app.initialized)
         return res.status(503).json({ message: 'Not yet initialized.' });
     if (req.app.processingWebhooks) {
-        debug('Still processing last webhook load.');
-        console.error('Still processing.');
+        error('Still processing last webhook load.');
         return res.send('OK');
     }
 
     req.app.processingWebhooks = true;
-    kongMain.processWebhooks(req.body, function (err) {
+    kongMain.processWebhooks(function (err) {
         req.app.processingWebhooks = false;
         if (err) {
             app.lastErr = err;

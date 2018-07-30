@@ -519,7 +519,7 @@ export function kongPatchApi(apiId: string, apiConfig: KongApi, callback: Callba
         }, function (err, results) {
             return callback(null, wicked.kongServiceRouteToApi(results.persistedService, results.persistedRoute));
         })
-    })
+    });
     //kongPatch(`apis/${apiId}`, apiConfig, callback);
 }
 
@@ -560,6 +560,10 @@ export function kongDeleteApiPlugin(apiId: string, pluginId: string, callback: E
 }
 
 // Consumer functions
+export function kongGetAllConsumers(callback: Callback<KongCollection<KongConsumer>>): void {
+    kongGet('consumers?size=100000', callback);
+}
+
 export function kongGetConsumersByCustomId(customId: string, callback: Callback<KongCollection<KongConsumer>>): void {
     kongGet('consumers?custom_id=' + qs.escape(customId), callback);
 }
