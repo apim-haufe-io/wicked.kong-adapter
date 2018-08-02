@@ -24,7 +24,7 @@ export const portal = {
             const apiList = results.getApis as WickedApiCollection;
             const authServerList = results.getAuthServers as WickedAuthServer[];
 
-            let portalHost = wicked.getExternalPortalUrl();
+            let portalHost = wicked.getInternalPortalUrl();
             if (!portalHost) {
                 debug('portalUrl is not set in globals.json, defaulting to http://portal:3000');
                 portalHost = 'http://portal:3000'; // Default
