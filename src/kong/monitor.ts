@@ -55,13 +55,24 @@ function checkKongCluster(callback) {
     });
 };
 
+var _pingInProgress = false;
 function pingKong(callback) {
     debug('pingKong()');
 
+    if (!wicked.isApiReachable()) {
+        warn(`Monitor: wicked API is currently not reachable.`);
+    }
+
+    if (_pingInProgress) {
+        debug('pingKong() There already is a ping in progress.');
+        return;
+    }
+    _pingInProgress = true;
     async.series([
         callback => checkKongVersion(callback),
         callback => checkKongCluster(callback)
     ], function (err, results) {
+        _pingInProgress = false;
         if (err) {
             console.error('*** KONG does not behave!');
             console.error(err);
@@ -71,6 +82,7 @@ function pingKong(callback) {
                 return callback(err);
             return;
         }
+        info('Monitor: Kong is answering.');
         utils.markKongAvailable(true, null, results[1]);
         if (callback)
             return callback(null);

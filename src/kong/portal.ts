@@ -4,7 +4,7 @@ const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:portal');
 import * as utils from './utils';
 import * as wicked from 'wicked-sdk';
-import { Callback, WickedApplication, WickedAuthServer, WickedError, KongPluginRequestTransformer, KongPluginCors, WickedApiPlanCollection, WickedApiPlan, WickedApiCollection, WickedApi, KongApiConfig } from 'wicked-sdk';
+import { Callback, WickedApplication, WickedAuthServer, WickedError, KongPluginRequestTransformer, KongPluginCors, WickedApiPlanCollection, WickedApiPlan, WickedApiCollection, WickedApi, KongApiConfig, KongPluginRateLimiting, WickedSessionStoreType } from 'wicked-sdk';
 import { ConsumerInfo, ApplicationData, ApiDescriptionCollection, ApiDescription } from './types';
 
 const MAX_PARALLEL_CALLS = 10;
@@ -32,11 +32,13 @@ export const portal = {
             // Add the Swagger UI "API" for tunneling
             const swaggerApi = require('../../resources/swagger-ui.json');
             swaggerApi.config.api.upstream_url = portalHost + 'swagger-ui';
+            checkApiConfig(swaggerApi.config);
             apiList.apis.push(swaggerApi);
 
             // And a Ping end point for monitoring            
             const pingApi = require('../../resources/ping-api.json');
             pingApi.config.api.upstream_url = portalHost + 'ping';
+            checkApiConfig(pingApi.config);
             apiList.apis.push(pingApi);
 
             // And the auth Servers please
@@ -216,6 +218,9 @@ function checkApiConfig(apiConfig: KongApiConfig): KongApiConfig {
                 case "cors":
                     checkCorsPlugin(plugin as KongPluginCors);
                     break;
+                case "rate-limiting":
+                    checkRateLimitingPlugin(apiConfig, plugin as KongPluginRateLimiting);
+                    break;
             }
         }
     }
@@ -258,6 +263,39 @@ function checkCorsPlugin(plugin: KongPluginCors): void {
             warn(`Detected faulty type of CORS config.origins property, converting to array.`);
             plugin.config.origins = [plugin.config.origins];
         }
+    }
+}
+
+function checkRateLimitingPlugin(apiConfig: KongApiConfig, plugin: KongPluginRateLimiting): void {
+    const glob = wicked.getGlobals();
+    if (!glob.sessionStore)
+        return;
+    if (glob.sessionStore.type !== WickedSessionStoreType.Redis)
+        return;
+    // We have a redis, let's use that for storing rate limiting information
+    if (!plugin.config) {
+        warn(`checkRateLimitingPlugin: Empty configuration for rate-limiting for API ${apiConfig.api.name}`);
+        return;
+    }
+    if (plugin.config.redis_database) {
+        info(`checkRateLimitingPlugin: Configuration for rate-limiting for API ${apiConfig.api.name} already contains a redis_database, not using wicked redis.`);
+        return;
+    }
+    if (plugin.config.policy && plugin.config.policy !== 'redis') {
+        warn(`checkRateLimitingPlugin: Configuration for rate-limiting for API ${apiConfig.api.name} explicitly contains a config.policy "${plugin.config.policy}", not using redis.`);
+        return;
+    }
+
+    if (glob.sessionStore.host) {
+        info(`checkRateLimitingPlugin: Applying redis caching for rate-limiting for API ${apiConfig.api.name}`);
+        plugin.config.policy = 'redis';
+        plugin.config.redis_host = glob.sessionStore.host;
+        if (glob.sessionStore.port)
+            plugin.config.redis_port = Number(glob.sessionStore.port);
+        if (glob.sessionStore.password)
+            plugin.config.redis_password = glob.sessionStore.password;
+        if (!plugin.config.redis_timeout)
+            plugin.config.redis_timeout = 2000; // ms
     }
 }
 

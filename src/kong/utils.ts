@@ -13,6 +13,10 @@ const async = require('async');
 import { SyncStatistics, ConsumerPlugin } from "./types";
 import { WickedGroupCollection, Callback, WickedApiPlanCollection, WickedApiPlan, KongApi, KongService, KongRoute, KongPlugin, ErrorCallback, ProtocolType, KongCollection, KongConsumer, KongGlobals, KongStatus } from "wicked-sdk";
 
+const KONG_TIMEOUT = 5000;
+const KONG_RETRY_DELAY = 2000;
+const KONG_MAX_ATTEMPTS = 10;
+
 export function getUtc(): number {
     return Math.floor((new Date()).getTime() / 1000);
 }
@@ -123,7 +127,11 @@ export function markKongAvailable(kongAvailable, kongMessage, clusterStatus) {
 
 export function getKongClusterStatus() {
     return _kongClusterStatus;
-};
+}
+
+export function isKongAvailable() {
+    return _kongAvailable;
+}
 
 function defaultStatistics(): SyncStatistics {
     return {
@@ -183,7 +191,7 @@ function kongActionStat(method, url, body): void {
 }
 
 function kongAction(method, url, body, expectedStatusCode, callback: Callback<any>): void {
-    debug('kongAction(), ' + method + ', ' + url);
+    debug(`kongAction(): ${method} "${url}"`);
     kongActionStat(method, url, body);
 
     // If for some reason, we think Kong is not available, tell the upstream
@@ -197,7 +205,8 @@ function kongAction(method, url, body, expectedStatusCode, callback: Callback<an
     const kongUrl = getKongUrl();
     const methodBody: any = {
         method: method,
-        url: kongUrl + url
+        url: kongUrl + url,
+        timeout: KONG_TIMEOUT
     };
     if (method != 'DELETE' &&
         method != 'GET') {
@@ -210,20 +219,34 @@ function kongAction(method, url, body, expectedStatusCode, callback: Callback<an
             console.error('curl -X ' + method + ' ' + methodBody.url);
     }
 
-    request(methodBody, function (err, apiResponse, apiBody) {
-        if (err)
-            return callback(err);
-        if (expectedStatusCode != apiResponse.statusCode) {
-            const err: any = new Error('kongAction ' + method + ' on ' + url + ' did not return the expected status code (got: ' + apiResponse.statusCode + ', expected: ' + expectedStatusCode + ').');
-            err.status = apiResponse.statusCode;
-            debug(method + ' /' + url);
-            debug(methodBody);
-            debug(apiBody);
-            //console.error(apiBody);
-            return callback(err);
-        }
-        callback(null, getJson(apiBody));
-    });
+    function tryRequest(attempt: number) {
+        request(methodBody, function (err, apiResponse, apiBody) {
+            if (err) {
+                if (attempt > KONG_MAX_ATTEMPTS) {
+                    error(`kongAction: Giving up after ${KONG_MAX_ATTEMPTS} attempts to send a request to Kong.`);
+                    return callback(err);
+                }
+                warn(`kongAction: Failed to send a request to Kong; retrying in ${KONG_RETRY_DELAY} ms (#${attempt+1}). Preventing other calls in the mean time.`);
+                _kongAvailable = false;
+
+                setTimeout(tryRequest, KONG_RETRY_DELAY, attempt + 1);
+                return;
+            }
+            _kongAvailable = true;
+            if (expectedStatusCode != apiResponse.statusCode) {
+                const err: any = new Error('kongAction ' + method + ' on ' + url + ' did not return the expected status code (got: ' + apiResponse.statusCode + ', expected: ' + expectedStatusCode + ').');
+                err.status = apiResponse.statusCode;
+                debug(method + ' /' + url);
+                debug(methodBody);
+                debug(apiBody);
+                //console.error(apiBody);
+                return callback(err);
+            }
+            callback(null, getJson(apiBody));
+        });
+    }
+
+    tryRequest(0);
 }
 
 function kongGet(url: string, callback: Callback<any>) {
@@ -603,7 +626,7 @@ export function kongDeleteConsumer(consumerId: string, callback: ErrorCallback):
 // OTHER FUNCTIONS
 
 export function kongGetGlobals(callback: Callback<KongGlobals>): void {
-    kongGet('/', callback);
+    kongGet('', callback);
 }
 
 export function kongGetStatus(callback: Callback<KongStatus>): void {

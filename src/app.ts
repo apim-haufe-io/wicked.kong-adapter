@@ -17,7 +17,6 @@ const app = express();
 app.initialized = false;
 app.kongAvailable = false;
 app.apiAvailable = false;
-app.lastErr = null;
 
 // Correlation ID
 app.use(correlationIdHandler);
@@ -43,12 +42,9 @@ app.post('/', function (req, res, next) {
     kongMain.processWebhooks(function (err) {
         req.app.processingWebhooks = false;
         if (err) {
-            app.lastErr = err;
-            console.error(err);
-            console.error(err.stack);
+            error(err);
             return res.status(500).json(err);
         }
-        app.lastErr = null;
         return res.send('OK');
     });
 });
@@ -78,10 +74,13 @@ app.get('/ping', function (req, res, next) {
         health.healthy = 2;
         health.message = msg;
         res.status(503);
-    } else if (app.lastErr) {
+    } else if (!wicked.isApiReachable()) {
         health.healthy = 0;
-        health.message = app.lastErr.message;
-        health.error = JSON.stringify(app.lastErr, null, 2);
+        health.message = 'The wicked API is currently not available';
+        res.status(500);
+    } else if (!utils.isKongAvailable()) {
+        health.healthy = 0;
+        health.message = 'Kong is currently not available';
         res.status(500);
     }
     res.json(health);
