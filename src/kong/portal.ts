@@ -219,6 +219,7 @@ function checkApiConfig(apiConfig: KongApiConfig): KongApiConfig {
                     checkCorsPlugin(plugin as KongPluginCors);
                     break;
                 case "rate-limiting":
+                case "response-ratelimiting":
                     checkRateLimitingPlugin(apiConfig, plugin as KongPluginRateLimiting);
                     break;
             }
