@@ -7,4 +7,4 @@ RUN chown -R node:node /usr/src/app
 FROM ${DOCKER_PREFIX}portal-env:${PORTAL_ENV_TAG}${BUILD_ALPINE}
 COPY --from=builder /usr/src/app/dist /usr/src/app/dist
 
-EXPOSE 3010
+EXPOSE 3002
