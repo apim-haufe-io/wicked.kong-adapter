@@ -282,6 +282,10 @@ function checkCorsPlugin(plugin: KongPluginCors): void {
             warn(`Detected faulty type of CORS config.origins property, converting to array.`);
             plugin.config.origins = [plugin.config.origins];
         }
+        if (typeof (plugin.config.methods === 'string')) {
+            debug(`checkCorsPlugin: Converting "methods" to string array`);
+            plugin.config.methods = plugin.config.methods.split(',');
+        }
     }
 }
 
