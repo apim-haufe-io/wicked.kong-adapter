@@ -46,7 +46,7 @@ export const portal = {
                 // TODO: This is not nice. The property "desc" is not present in authServerList, and thus
                 // it cannot be directly used as an ApiDescription object. But on the other hand, it contains
                 // everything else which we need (a KongApiConfig object)
-                apiList.apis.push(authServerList[i] as any as ApiDescription); 
+                apiList.apis.push(authServerList[i] as any as ApiDescription);
             }
 
             debug('getPortalApis():');
@@ -104,13 +104,27 @@ export const portal = {
     getAppConsumers: function (appId, callback: Callback<ConsumerInfo[]>) {
         debug('getPortalConsumersForApp() ' + appId);
         const applicationList = [{ id: appId, ownerList: [], name: appId }];
-        async.waterfall([
-            callback => utils.getPlans(callback),
-            (apiPlans, callback) => enrichApplications(applicationList, apiPlans, callback)
-        ], function (err, appConsumers) {
+        let apiPlans: WickedApiPlanCollection = null;
+        let apiList: ApiDescriptionCollection = null;
+        async.series({
+            plans: callback => utils.getPlans(function (err, apiPlans_: WickedApiPlanCollection) {
+                if (err)
+                    return callback(err);
+                apiPlans = apiPlans_;
+                return callback(null);
+            }),
+            apis: callback => getActualApis(function (err, apiList_: ApiDescriptionCollection) {
+                if (err)
+                    return callback(err);
+                apiList = apiList_;
+                return callback(null);
+            }),
+            appConsumers: callback => enrichApplications(applicationList, apiPlans, apiList, callback)
+            // (apiPlans, callback) => enrichApplications(applicationList, apiPlans, callback)
+        }, function (err, results) {
             if (err)
                 return callback(err);
-            callback(null, appConsumers);
+            callback(null, results.appConsumers);
         });
     },
 
@@ -123,8 +137,11 @@ export const portal = {
 
 // INTERNAL FUNCTIONS/HELPERS
 
+let _actualApis: ApiDescriptionCollection = null;
 function getActualApis(callback: Callback<ApiDescriptionCollection>) {
     debug('getActualApis()');
+    if (_actualApis)
+        return callback(null, _actualApis);
     wicked.getApis(function (err, apiList) {
         if (err)
             return callback(err);
@@ -162,6 +179,7 @@ function getActualApis(callback: Callback<ApiDescriptionCollection>) {
         }, function (err) {
             if (err)
                 return callback(err);
+            _actualApis = apiList;
             return callback(null, apiList);
         });
     });
@@ -192,7 +210,7 @@ function getAuthServerApis(callback: Callback<WickedAuthServer[]>) {
                     const url = new URL(as.config.api.upstream_url);
                     as.config.api.upstream_url = url.toString();
                 } catch (err) {
-                    const msg =  `getAuthServerApis(): upstream_url for auth server ${authServerNames[i]} is not a valid URL: ${as.config.api.upstream_url}`;
+                    const msg = `getAuthServerApis(): upstream_url for auth server ${authServerNames[i]} is not a valid URL: ${as.config.api.upstream_url}`;
                     return callback(new WickedError(msg, 500));
                 }
 
@@ -258,7 +276,7 @@ function checkRequestTransformerPlugin(apiConfig: KongApiConfig, plugin: KongPlu
 
 function checkCorsPlugin(plugin: KongPluginCors): void {
     debug('checkCorsPlugin()');
-    if (plugin.config && 
+    if (plugin.config &&
         plugin.config.origins) {
         if (typeof (plugin.config.origins) === 'string') {
             warn(`Detected faulty type of CORS config.origins property, converting to array.`);
@@ -304,6 +322,7 @@ function getAllAppConsumers(callback: Callback<ConsumerInfo[]>): void {
     debug('getAllAppConsumers()');
     async.parallel({
         apiPlans: callback => utils.getPlans(callback),
+        apiList: callback => getActualApis(callback),
         applicationList: callback => wicked.getApplications({}, callback)
     }, function (err, results) {
         if (err)
@@ -311,8 +330,9 @@ function getAllAppConsumers(callback: Callback<ConsumerInfo[]>): void {
 
         const applicationList = results.applicationList.items as WickedApplication[];
         const apiPlans = results.apiPlans as WickedApiPlanCollection;
+        const apiList = results.apiList as ApiDescriptionCollection;
 
-        enrichApplications(applicationList, apiPlans, callback);
+        enrichApplications(applicationList, apiPlans, apiList, callback);
     });
 }
 
@@ -353,7 +373,7 @@ function getApplicationData(appId: string, callback: Callback<ApplicationData>):
     });
 }
 
-function enrichApplications(applicationList: WickedApplication[], apiPlans: WickedApiPlanCollection, callback: Callback<ConsumerInfo[]>) {
+function enrichApplications(applicationList: WickedApplication[], apiPlans: WickedApiPlanCollection, apiList: ApiDescriptionCollection, callback: Callback<ConsumerInfo[]>) {
     debug('enrichApplications(), applicationList = ' + utils.getText(applicationList));
     async.mapLimit(applicationList, MAX_PARALLEL_CALLS, function (appInfo, callback) {
         getApplicationData(appInfo.id, callback);
@@ -371,6 +391,18 @@ function enrichApplications(applicationList: WickedApplication[], apiPlans: Wick
                 if (!appSubs.approved)
                     continue;
 
+                let groupName = appSubs.api;
+                // Check if this API is part of a bundle
+                const apiDesc = apiList.apis.find(a => a.id === appSubs.api);
+                if (apiDesc) {
+                    // API_BUNDLE: Use bundle as group name; this will mean that access tokens/API Keys for this API
+                    // will also work for any other API which is part of this bundle.
+                    if (apiDesc.bundle)
+                        groupName = apiDesc.bundle;
+                } else {
+                    warn(`enrichApplications: Could not find API configuration for API ${appSubs.api}`);
+                }
+
                 debug(utils.getText(appSubs));
                 const consumerInfo: ConsumerInfo = {
                     consumer: {
@@ -379,7 +411,7 @@ function enrichApplications(applicationList: WickedApplication[], apiPlans: Wick
                     },
                     plugins: {
                         acls: [{
-                            group: appSubs.api
+                            group: groupName
                         }]
                     }
                 };
@@ -458,11 +490,11 @@ function injectKeyAuth(api: ApiDescription): ApiDescription {
     const aclPlugin = plugins.find(function (plugin) { return plugin.name == 'acl'; });
     if (aclPlugin)
         throw new Error("If you use 'key-auth' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
-    
+
     let hide_credentials = false;
     if (api.config.api.hide_credentials)
         hide_credentials = api.config.api.hide_credentials;
-  
+
     plugins.push({
         name: 'key-auth',
         enabled: true,
@@ -471,18 +503,21 @@ function injectKeyAuth(api: ApiDescription): ApiDescription {
             key_names: [wicked.getApiKeyHeader()]
         }
     });
+    // API_BUNDLE: Is this API part of a bundle? If so, use the bundle name as the group name
+    let groupName = api.bundle ? api.bundle : api.id;
+    debug(`injectKeyAuth: Using ACL group name ${groupName}`);
     plugins.push({
         name: 'acl',
         enabled: true,
         config: {
-            whitelist: [api.id]
+            whitelist: [groupName]
         }
     });
     return api;
 }
 
 function injectOAuth2Auth(api: ApiDescription): void {
-    debug('injectImplicitAuth()');
+    debug('injectOAuth2Auth()');
     if (!api.config.plugins)
         api.config.plugins = [];
     const plugins = api.config.plugins;
@@ -522,6 +557,13 @@ function injectOAuth2Auth(api: ApiDescription): void {
             hide_credentials = api.config.api.hide_credentials;
     }
 
+    // API_BUNDLE: In case the API is part of a bundle, specify that it's using global credentials.
+    // This is a semi-nice hack for now; it means all APIs which are part of a bundle (any bundle!)
+    // will also share the token.
+    let globalCredentials = false;
+    if (api.bundle)
+        globalCredentials = true;
+
     plugins.push({
         name: 'oauth2',
         enabled: true,
@@ -534,14 +576,18 @@ function injectOAuth2Auth(api: ApiDescription): void {
             enable_implicit_grant: enable_implicit_grant,
             enable_password_grant: enable_password_grant,
             hide_credentials: hide_credentials,
-            accept_http_if_already_terminated: true
+            accept_http_if_already_terminated: true,
+            global_credentials: globalCredentials
         }
     });
+    // API_BUNDLE: Is this API part of a bundle? If so, use the bundle name as the group name
+    let groupName = api.bundle ? api.bundle : api.id;
+    debug(`injectOAuth2Auth: Using ACL group name ${groupName}`);
     plugins.push({
         name: 'acl',
         enabled: true,
         config: {
-            whitelist: [api.id]
+            whitelist: [groupName]
         }
     });
 }
