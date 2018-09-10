@@ -71,6 +71,20 @@ export const kongMain = {
         kongMain.init(initOptions, done);
     },
 
+    resyncApis: function () {
+        info('Resyncing all APIs (to check for updated scopes)');
+        const initOptions = {
+            syncApis: true,
+            syncConsumers: false
+        };
+        kongMain.init(initOptions, function (err) {
+            if (err) {
+                error('Resyncing all APIs: An error occurred!');
+                error(err);
+            }
+        });
+    },
+
     processWebhooks: function (callback) {
         debug('processWebhooks()');
         info(`Processing events.`);

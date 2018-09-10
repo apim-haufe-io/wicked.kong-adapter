@@ -8,6 +8,7 @@ import { Callback, WickedApplication, WickedAuthServer, WickedError, KongPluginR
 import { ConsumerInfo, ApplicationData, ApiDescriptionCollection, ApiDescription } from './types';
 
 const MAX_PARALLEL_CALLS = 10;
+const REFRESH_API_INTERVAL = 3 * 60 * 1000; // 3 minutes
 
 // ======== INTERFACE FUNCTIONS =======
 
@@ -21,8 +22,8 @@ export const portal = {
             if (err)
                 return callback(err);
 
-            const apiList = results.getApis as WickedApiCollection;
-            const authServerList = results.getAuthServers as WickedAuthServer[];
+            const apiList = utils.clone(results.getApis) as WickedApiCollection;
+            const authServerList = utils.clone(results.getAuthServers) as WickedAuthServer[];
 
             let portalHost = wicked.getInternalPortalUrl();
             if (!portalHost) {
@@ -138,10 +139,14 @@ export const portal = {
 // INTERNAL FUNCTIONS/HELPERS
 
 let _actualApis: ApiDescriptionCollection = null;
+let _actualApisDate = 0;
 function getActualApis(callback: Callback<ApiDescriptionCollection>) {
     debug('getActualApis()');
-    if (_actualApis)
-        return callback(null, _actualApis);
+    const now = (new Date()).getTime();
+    if (now - _actualApisDate < REFRESH_API_INTERVAL) {
+        if (_actualApis)
+            return callback(null, _actualApis);
+    }
     wicked.getApis(function (err, apiList) {
         if (err)
             return callback(err);
@@ -180,6 +185,7 @@ function getActualApis(callback: Callback<ApiDescriptionCollection>) {
             if (err)
                 return callback(err);
             _actualApis = apiList;
+            _actualApisDate = now;
             return callback(null, apiList);
         });
     });

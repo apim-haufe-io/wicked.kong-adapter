@@ -79,6 +79,9 @@ async.series([
 
         info("Kong Adapter initialization done.");
         app.initialized = true;
+
+        // Resync APIs every five minutes.
+        setInterval(() => { kongMain.resyncApis(); }, 5 * 60 * 1000);
     });
 });
 
