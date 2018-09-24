@@ -539,56 +539,48 @@ function injectOAuth2Auth(api: ApiDescription): void {
     if (aclPlugin)
         throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
 
-    let scopes = [];
-    let mandatory_scope = false;
-    let token_expiration = 3600;
-    let enable_client_credentials = false;
-    let enable_implicit_grant = false;
-    let enable_authorization_code = false;
-    let enable_password_grant = false;
-    let hide_credentials = false;
-    if (api.settings) {
-        // Check overridden defaults
-        if (api.settings.scopes)
-            scopes = api.settings.scopes as any; // This is correct; this is a hack further above. Search for "HACK_SCOPES"
-        if (api.settings.mandatory_scope)
-            mandatory_scope = api.settings.mandatory_scope;
-        if (api.settings.token_expiration)
-            token_expiration = Number(api.settings.token_expiration);
-        if (api.settings.enable_client_credentials)
-            enable_client_credentials = api.settings.enable_client_credentials;
-        if (api.settings.enable_implicit_grant)
-            enable_implicit_grant = api.settings.enable_implicit_grant;
-        if (api.settings.enable_authorization_code)
-            enable_authorization_code = api.settings.enable_authorization_code;
-        if (api.settings.enable_password_grant)
-            enable_password_grant = api.settings.enable_password_grant;
-        if (api.config.api.hide_credentials)
-            hide_credentials = api.config.api.hide_credentials;
-    }
+    // Explicit defaults 
+    let plugin_config:any = {
+        scopes: [],
+        mandatory_scope: false,
+        token_expiration: 3600,
+        enable_client_credentials: false,
+        enable_implicit_grant: false,
+        enable_authorization_code: false,
+        enable_password_grant: false,
+        hide_credentials: false
+    };
+
+    if (api.settings.scopes)
+        plugin_config.scopes = api.settings.scopes as any; // This is correct; this is a hack further above. Search for "HACK_SCOPES"
+    if (api.settings.mandatory_scope)
+        plugin_config.mandatory_scope = api.settings.mandatory_scope;
+    if (api.settings.token_expiration)
+        plugin_config.token_expiration = Number(api.settings.token_expiration);
+    if (api.settings.enable_client_credentials)
+        plugin_config.enable_client_credentials = api.settings.enable_client_credentials;
+    if (api.settings.enable_implicit_grant)
+        plugin_config.enable_implicit_grant = api.settings.enable_implicit_grant;
+    if (api.settings.enable_authorization_code)
+        plugin_config.enable_authorization_code = api.settings.enable_authorization_code;
+    if (api.settings.enable_password_grant)
+        plugin_config.enable_password_grant = api.settings.enable_password_grant;
+    if (api.config.api.hide_credentials)
+        plugin_config.hide_credentials = api.config.api.hide_credentials;
+    if (api.settings.refresh_token_ttl)
+        plugin_config.refresh_token_ttl = Number(api.settings.refresh_token_ttl);
 
     // API_BUNDLE: In case the API is part of a bundle, specify that it's using global credentials.
     // This is a semi-nice hack for now; it means all APIs which are part of a bundle (any bundle!)
     // will also share the token.
-    let globalCredentials = false;
+    plugin_config.globalCredentials = false;
     if (api.bundle)
-        globalCredentials = true;
+        plugin_config.globalCredentials = true;
 
     plugins.push({
         name: 'oauth2',
         enabled: true,
-        config: {
-            scopes: scopes,
-            mandatory_scope: mandatory_scope,
-            token_expiration: token_expiration,
-            enable_authorization_code: enable_authorization_code,
-            enable_client_credentials: enable_client_credentials,
-            enable_implicit_grant: enable_implicit_grant,
-            enable_password_grant: enable_password_grant,
-            hide_credentials: hide_credentials,
-            accept_http_if_already_terminated: true,
-            global_credentials: globalCredentials
-        }
+        config: plugin_config
     });
     // API_BUNDLE: Is this API part of a bundle? If so, use the bundle name as the group name
     let groupName = api.bundle ? api.bundle : api.id;
