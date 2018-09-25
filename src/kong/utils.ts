@@ -224,6 +224,9 @@ function kongAction(method, url, body, expectedStatusCode, callback: Callback<an
             if (err) {
                 if (attempt > KONG_MAX_ATTEMPTS) {
                     error(`kongAction: Giving up after ${KONG_MAX_ATTEMPTS} attempts to send a request to Kong.`);
+                    // Still open up calls to Kong again now. Otherwise we would get stuck
+                    // in a deadlock loop.
+                    _kongAvailable = true;
                     return callback(err);
                 }
                 warn(`kongAction: Failed to send a request to Kong; retrying in ${KONG_RETRY_DELAY} ms (#${attempt+1}). Preventing other calls in the mean time.`);

@@ -67,6 +67,12 @@ function pingKong(callback) {
         debug('pingKong() There already is a ping in progress.');
         return;
     }
+
+    if (!utils.isKongAvailable()) {
+        warn(`Monitor: Will not ping Kong; somebody marked Kong as unavailable.`);
+        return;
+    }
+
     _pingInProgress = true;
     async.series([
         callback => checkKongVersion(callback),
@@ -76,14 +82,14 @@ function pingKong(callback) {
         if (err) {
             console.error('*** KONG does not behave!');
             console.error(err);
-            utils.markKongAvailable(false, err.message, null);
+            // utils.markKongAvailable(false, err.message, null);
             setTimeout(forceExit, 2000);
             if (callback)
                 return callback(err);
             return;
         }
         info('Monitor: Kong is answering.');
-        utils.markKongAvailable(true, null, results[1]);
+        // utils.markKongAvailable(true, null, results[1]);
         if (callback)
             return callback(null);
     });
