@@ -77,11 +77,11 @@ app.get('/ping', function (req, res, next) {
     } else if (!wicked.isApiReachable()) {
         health.healthy = 0;
         health.message = 'The wicked API is currently not available';
-        res.status(500);
+        res.status(200);
     } else if (!utils.isKongAvailable()) {
         health.healthy = 0;
         health.message = 'Kong is currently not available';
-        res.status(500);
+        res.status(200);
     }
     res.json(health);
 });
