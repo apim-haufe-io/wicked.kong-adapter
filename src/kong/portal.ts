@@ -4,7 +4,7 @@ const async = require('async');
 const { debug, info, warn, error } = require('portal-env').Logger('kong-adapter:portal');
 import * as utils from './utils';
 import * as wicked from 'wicked-sdk';
-import { Callback, WickedApplication, WickedAuthServer, WickedError, KongPluginRequestTransformer, KongPluginCors, WickedApiPlanCollection, WickedApiPlan, WickedApiCollection, WickedApi, KongApiConfig, KongPluginRateLimiting, WickedSessionStoreType } from 'wicked-sdk';
+import { Callback, WickedApplication, WickedAuthServer, WickedError, KongPluginRequestTransformer, KongPluginCors, WickedApiPlanCollection, WickedApiPlan, WickedApiCollection, WickedApi, KongApiConfig, KongPluginRateLimiting, WickedSessionStoreType, WickedApiSettings } from 'wicked-sdk';
 import { ConsumerInfo, ApplicationData, ApiDescriptionCollection, ApiDescription } from './types';
 
 const MAX_PARALLEL_CALLS = 10;
@@ -539,50 +539,63 @@ function injectOAuth2Auth(api: ApiDescription): void {
     if (aclPlugin)
         throw new Error("If you use 'oauth2' in the apis.json, you must not provide a 'acl' plugin yourself. Remove it and retry.");
 
-    // Explicit defaults 
-    let plugin_config:any = {
-        scopes: [],
-        mandatory_scope: false,
-        token_expiration: 3600,
-        enable_client_credentials: false,
-        enable_implicit_grant: false,
-        enable_authorization_code: false,
-        enable_password_grant: false,
-        hide_credentials: false
-    };
-
-    if (api.settings.scopes)
-        plugin_config.scopes = api.settings.scopes as any; // This is correct; this is a hack further above. Search for "HACK_SCOPES"
-    if (api.settings.mandatory_scope)
-        plugin_config.mandatory_scope = api.settings.mandatory_scope;
-    if (api.settings.token_expiration)
-        plugin_config.token_expiration = Number(api.settings.token_expiration);
-    if (api.settings.enable_client_credentials)
-        plugin_config.enable_client_credentials = api.settings.enable_client_credentials;
-    if (api.settings.enable_implicit_grant)
-        plugin_config.enable_implicit_grant = api.settings.enable_implicit_grant;
-    if (api.settings.enable_authorization_code)
-        plugin_config.enable_authorization_code = api.settings.enable_authorization_code;
-    if (api.settings.enable_password_grant)
-        plugin_config.enable_password_grant = api.settings.enable_password_grant;
-    if (api.config.api.hide_credentials)
-        plugin_config.hide_credentials = api.config.api.hide_credentials;
-    if (api.settings.refresh_token_ttl)
-        plugin_config.refresh_token_ttl = Number(api.settings.refresh_token_ttl);
+    let scopes = [];
+    let mandatory_scope = false;
+    let token_expiration = 3600;
+    let enable_client_credentials = false;
+    let enable_implicit_grant = false;
+    let enable_authorization_code = false;
+    let enable_password_grant = false;
+    let hide_credentials = false;
+    if (api.settings) {
+        // Check overridden defaults
+        if (api.settings.scopes)
+            scopes = api.settings.scopes as any; // This is correct; this is a hack further above. Search for "HACK_SCOPES"
+        if (api.settings.mandatory_scope)
+            mandatory_scope = api.settings.mandatory_scope;
+        if (api.settings.token_expiration)
+            token_expiration = Number(api.settings.token_expiration);
+        if (api.settings.enable_client_credentials)
+            enable_client_credentials = api.settings.enable_client_credentials;
+        if (api.settings.enable_implicit_grant)
+            enable_implicit_grant = api.settings.enable_implicit_grant;
+        if (api.settings.enable_authorization_code)
+            enable_authorization_code = api.settings.enable_authorization_code;
+        if (api.settings.enable_password_grant)
+            enable_password_grant = api.settings.enable_password_grant;
+        if (api.config.api.hide_credentials)
+            hide_credentials = api.config.api.hide_credentials;
+    }
 
     // API_BUNDLE: In case the API is part of a bundle, specify that it's using global credentials.
     // This is a semi-nice hack for now; it means all APIs which are part of a bundle (any bundle!)
     // will also share the token.
-    plugin_config.globalCredentials = false;
+    let globalCredentials = false;
     if (api.bundle)
-        plugin_config.globalCredentials = true;
+        globalCredentials = true;
+
+    const pluginConfig: any = {
+        scopes: scopes,
+        mandatory_scope: mandatory_scope,
+        token_expiration: token_expiration,
+        enable_authorization_code: enable_authorization_code,
+        enable_client_credentials: enable_client_credentials,
+        enable_implicit_grant: enable_implicit_grant,
+        enable_password_grant: enable_password_grant,
+        hide_credentials: hide_credentials,
+        accept_http_if_already_terminated: true,
+        global_credentials: globalCredentials
+    }
+
+    // Don't specify if not set; defaults to 2 weeks
+    if (api.settings.refresh_token_ttl)
+        pluginConfig.refresh_token_ttl = api.settings.refresh_token_ttl;
 
     plugins.push({
         name: 'oauth2',
         enabled: true,
-        config: plugin_config
-    });
-    // API_BUNDLE: Is this API part of a bundle? If so, use the bundle name as the group name
+        config: pluginConfig
+    });    // API_BUNDLE: Is this API part of a bundle? If so, use the bundle name as the group name
     let groupName = api.bundle ? api.bundle : api.id;
     debug(`injectOAuth2Auth: Using ACL group name ${groupName}`);
     plugins.push({
