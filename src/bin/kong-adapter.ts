@@ -109,9 +109,9 @@ function normalizePort(val) {
  * Event listener for HTTP server "error" event.
  */
 
-function onError(error) {
-    if (error.syscall !== 'listen') {
-        throw error;
+function onError(err) {
+    if (err.syscall !== 'listen') {
+        throw err;
     }
 
     const bind = typeof port === 'string' ?
@@ -119,17 +119,17 @@ function onError(error) {
         'Port ' + port;
 
     // handle specific listen errors with friendly messages
-    switch (error.code) {
+    switch (err.code) {
         case 'EACCES':
-            console.error(bind + ' requires elevated privileges');
+            error(bind + ' requires elevated privileges');
             process.exit(1);
             break;
         case 'EADDRINUSE':
-            console.error(bind + ' is already in use');
+            error(bind + ' is already in use');
             process.exit(1);
             break;
         default:
-            throw error;
+            throw err;
     }
 }
 

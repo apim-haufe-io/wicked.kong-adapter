@@ -358,7 +358,7 @@ function getApplicationData(appId: string, callback: Callback<ApplicationData>):
             if (err && err.status == 404) {
                 // Race condition; web hook processing was not finished until the application
                 // was deleted again (can normally just happen when doing automatic testing).
-                console.error('*** Get Subscriptions: Application with ID ' + appId + ' was not found.');
+                error('*** Get Subscriptions: Application with ID ' + appId + ' was not found.');
                 return callback(null, []); // Treat as empty
             } else if (err) {
                 return callback(err);
@@ -368,7 +368,7 @@ function getApplicationData(appId: string, callback: Callback<ApplicationData>):
         application: callback => wicked.getApplication(appId, function (err, appInfo) {
             if (err && err.status == 404) {
                 // See above.
-                console.error('*** Get Application: Application with ID ' + appId + ' was not found.');
+                error('*** Get Application: Application with ID ' + appId + ' was not found.');
                 return callback(null, null);
             } else if (err) {
                 return callback(err);

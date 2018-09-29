@@ -213,10 +213,10 @@ function kongAction(method, url, body, expectedStatusCode, callback: Callback<an
         methodBody.json = true;
         methodBody.body = body;
         if (process.env.KONG_CURL)
-            console.error('curl -X ' + method + ' -d \'' + JSON.stringify(body) + '\' -H \'Content-Type: application/json\' ' + methodBody.url);
+            error('curl -X ' + method + ' -d \'' + JSON.stringify(body) + '\' -H \'Content-Type: application/json\' ' + methodBody.url);
     } else {
         if (process.env.KONG_CURL)
-            console.error('curl -X ' + method + ' ' + methodBody.url);
+            error('curl -X ' + method + ' ' + methodBody.url);
     }
 
     function tryRequest(attempt: number) {

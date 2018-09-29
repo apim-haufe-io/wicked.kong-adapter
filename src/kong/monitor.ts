@@ -80,8 +80,8 @@ function pingKong(callback) {
     ], function (err, results) {
         _pingInProgress = false;
         if (err) {
-            console.error('*** KONG does not behave!');
-            console.error(err);
+            error('*** KONG does not behave!');
+            error(err);
             // utils.markKongAvailable(false, err.message, null);
             setTimeout(forceExit, 2000);
             if (callback)
@@ -96,6 +96,6 @@ function pingKong(callback) {
 };
 
 function forceExit() {
-    console.log('Exiting component due to misbehaving Kong (see log).');
+    error('Exiting component due to misbehaving Kong (see log).');
     process.exit(0);
 }

@@ -109,7 +109,7 @@ if (process.env.ALLOW_RESYNC) {
             debug('Statistics for the /resync call:');
             debug(JSON.stringify(stats, null, 2));
             if (err) {
-                console.error(err);
+                error(err);
                 stats.err = err;
                 res.status(500);
             } else {
@@ -152,8 +152,8 @@ app.use(function (req, res, next) {
 // no stacktraces leaked to user
 app.use(function (err, req, res, next) {
     res.status(err.status || 500);
-    console.error(err);
-    console.error(err.stack);
+    error(err);
+    error(err.stack);
     res.jsonp({
         message: err.message,
         error: {}

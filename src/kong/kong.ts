@@ -253,8 +253,8 @@ export const kong = {
             (portalConsumer, callback) => getKongConsumerInfo(portalConsumer, callback),
             function (err, results) {
                 if (err) {
-                    console.error(err);
-                    console.error(err.stack);
+                    error(err);
+                    error(err.stack);
                     return callback(err);
                 }
                 debug('getKongConsumers() succeeded.');
