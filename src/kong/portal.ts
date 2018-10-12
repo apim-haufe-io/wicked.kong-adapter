@@ -171,6 +171,14 @@ function getActualApis(callback: Callback<ApiDescriptionCollection>) {
                 for (let g = 0; g < groups.length; ++g) {
                     api.settings.scopes.push(`wicked:${groups[g].id}`);
                 }
+                // HACK_PASSTHROUGH_REFRESH: For APIs with passthrough scopes and passthrough users,
+                // refresh tokens are created via the "password" grant; this means we must allow it in Kong as well.
+                {
+                    const _api = api as WickedApi;
+                    if (_api.passthroughUsers && _api.passthroughScopeUrl) {
+                        _api.settings.enable_password_grant = true;
+                    }
+                }
             }
         }
         // Enrich apiList with the configuration.
