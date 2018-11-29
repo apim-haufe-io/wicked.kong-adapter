@@ -197,6 +197,18 @@ export const sync = {
             error(JSON.stringify(globalPlugins, null, 2));
             return callback(new Error('Detected multiple global prometheus plugins.'));
         });
+    },
+
+    deleteLegacyApis: function (callback) {
+        debug('deleteLegacyApis()');
+        utils.kongGetLegacyApis(function (err, legacyApis) {
+            if (err)
+                return callback(err);
+            async.eachSeries(legacyApis.data, (legacyApi, callback) => {
+                info(`Deleting Legacy Kong API ${legacyApi.name}.`);
+                utils.kongDeleteLegacyApi(legacyApi.name, callback);
+            }, callback);
+        });
     }
 };
 

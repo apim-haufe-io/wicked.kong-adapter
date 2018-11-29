@@ -649,3 +649,13 @@ export function kongPostGlobalPlugin(plugin: KongPlugin, callback: Callback<Kong
 export function kongDeletePlugin(pluginId: string, callback: ErrorCallback): void {
     kongDelete(`plugins/${pluginId}`, callback);
 }
+
+// Legacy API functions
+
+export function kongGetLegacyApis(callback: Callback<KongCollection<KongApi>>): void {
+    kongGet('apis', callback);   
+}
+
+export function kongDeleteLegacyApi(apiName: string, callback: ErrorCallback): void {
+    kongDelete(`apis/${apiName}`, callback);
+}
