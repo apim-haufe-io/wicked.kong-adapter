@@ -33,7 +33,12 @@ echo "============================================"
 export BUILD_ALPINE=""
 perl -pe 's;(\\*)(\$([a-zA-Z_][a-zA-Z_0-9]*)|\$\{([a-zA-Z_][a-zA-Z_0-9]*)\})?;substr($1,0,int(length($1)/2)).($2&&length($1)%2?$2:$ENV{$3||$4});eg' Dockerfile.template > Dockerfile
 normalImageName="${DOCKER_PREFIX}kong-adapter:${DOCKER_TAG}"
-docker build --pull -t ${normalImageName} .
+if [[ $DOCKER_TAG == dev ]]; then
+    # Local build
+    docker build -t ${normalImageName} .
+else
+    docker build --pull -t ${normalImageName} .
+fi
 
 echo "============================================"
 echo "Building alpine image..."
@@ -42,7 +47,12 @@ echo "============================================"
 export BUILD_ALPINE="-alpine"
 perl -pe 's;(\\*)(\$([a-zA-Z_][a-zA-Z_0-9]*)|\$\{([a-zA-Z_][a-zA-Z_0-9]*)\})?;substr($1,0,int(length($1)/2)).($2&&length($1)%2?$2:$ENV{$3||$4});eg' Dockerfile.template > Dockerfile-alpine
 alpineImageName="${DOCKER_PREFIX}kong-adapter:${DOCKER_TAG}-alpine"
-docker build --pull -f Dockerfile-alpine -t ${alpineImageName} .
+if [[ $DOCKER_TAG == dev ]]; then
+    # Local build
+    docker build -f Dockerfile-alpine -t ${alpineImageName} .
+else
+    docker build --pull -f Dockerfile-alpine -t ${alpineImageName} .
+fi
 
 if [ "$1" = "--push" ]; then
     echo "============================================"
