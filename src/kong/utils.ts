@@ -372,7 +372,7 @@ export function getExpectedKongVersion() {
 let _gitLastCommit = null;
 export function getGitLastCommit() {
     if (!_gitLastCommit) {
-        const lastCommitFile = path.join(__dirname, '..', 'git_last_commit');
+        const lastCommitFile = path.join(__dirname, '..', '..', 'git_last_commit');
         if (fs.existsSync(lastCommitFile))
             _gitLastCommit = fs.readFileSync(lastCommitFile, 'utf8');
         else
@@ -384,7 +384,7 @@ export function getGitLastCommit() {
 let _gitBranch = null;
 export function getGitBranch() {
     if (!_gitBranch) {
-        const gitBranchFile = path.join(__dirname, '..', 'git_branch');
+        const gitBranchFile = path.join(__dirname, '..', '..', 'git_branch');
         if (fs.existsSync(gitBranchFile))
             _gitBranch = fs.readFileSync(gitBranchFile, 'utf8');
         else
