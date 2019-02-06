@@ -125,6 +125,10 @@ export function markKongAvailable(kongAvailable, kongMessage, clusterStatus) {
     _kongClusterStatus = clusterStatus;
 }
 
+export function setKongClusterStatus(clusterStatus) {
+    _kongClusterStatus = clusterStatus;
+};
+
 export function getKongClusterStatus() {
     return _kongClusterStatus;
 }
@@ -339,7 +343,7 @@ let _packageFile = null;
 export function getPackageJson() {
     if (!_packageFile) {
         // Deliberately do not do any error handling here! package.json MUST exist.
-        const packageFile = path.join(__dirname, '..', 'package.json');
+        const packageFile = path.join(__dirname, '..', '..', 'package.json');
         _packageFile = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
     }
     return _packageFile;
@@ -396,7 +400,7 @@ export function getGitBranch() {
 let _buildDate = null;
 export function getBuildDate() {
     if (!_buildDate) {
-        const buildDateFile = path.join(__dirname, '..', 'build_date');
+        const buildDateFile = path.join(__dirname, '..', '..', 'build_date');
         if (fs.existsSync(buildDateFile))
             _buildDate = fs.readFileSync(buildDateFile, 'utf8');
         else

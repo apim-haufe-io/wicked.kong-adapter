@@ -89,6 +89,7 @@ function pingKong(callback) {
             return;
         }
         info('Monitor: Kong is answering.');
+        utils.setKongClusterStatus(results[1]);
         // utils.markKongAvailable(true, null, results[1]);
         if (callback)
             return callback(null);
