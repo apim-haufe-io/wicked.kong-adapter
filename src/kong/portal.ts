@@ -447,14 +447,14 @@ function enrichApplications(applicationList: WickedApplication[], apiPlans: Wick
                     }
                 };
                 if ("oauth2" == appSubs.auth) {
-                    let redirectUri = appInfo.redirectUri;
-                    if (!redirectUri)
-                        redirectUri = 'https://dummy.org';
+                    let redirectUris = appInfo.redirectUris;
+                    if (!redirectUris || redirectUris.length == 0)
+                        redirectUris = ['https://dummy.org'];
                     consumerInfo.plugins.oauth2 = [{
                         name: appSubs.application,
                         client_id: appSubs.clientId,
                         client_secret: appSubs.clientSecret,
-                        redirect_uri: [redirectUri]
+                        redirect_uri: redirectUris
                     }];
                 } else if (!appSubs.auth || "key-auth" == appSubs.auth) {
                     consumerInfo.plugins["key-auth"] = [{
