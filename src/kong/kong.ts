@@ -583,6 +583,13 @@ function deleteKongConsumerApiPlugin(kongConsumer: ConsumerInfo, kongApiPlugin: 
 function patchKongConsumerApiPlugin(portalConsumer: ConsumerInfo, kongConsumer: ConsumerInfo, portalApiPlugin: KongPlugin, kongApiPlugin: KongPlugin, callback: ErrorCallback): void {
     debug('patchKongConsumerApiPlugin()');
     // Delete and re-add to make sure we don't have dangling properties
+    //
+    // TODO: This can lead to unwanted effects when updating a consumer; known issue when altering
+    // the OAuth2 redirect URIs: This leads to the oauth2 plugin being removed and re-added, thus
+    // changing the ID of the plugin. This in turn is related to a referenced ID in the oauth2_tokens
+    // table, which are cascaded-deleted with this action.
+    //
+    // See: https://github.com/Haufe-Lexware/wicked.haufe.io/issues/180
     async.series([
         callback => deleteKongConsumerApiPlugin(kongConsumer, kongApiPlugin, callback),
         callback => addKongConsumerApiPlugin(portalConsumer, kongConsumer.consumer.id, portalApiPlugin, callback)
