@@ -1,7 +1,11 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
 
-./node_modules/typescript/bin/tsc 
+if [ -f ./node_modules/typescript/bin/tsc ]; then
+    ./node_modules/typescript/bin/tsc
+else
+    tsc
+fi
 
 cp -f package.json ./dist
