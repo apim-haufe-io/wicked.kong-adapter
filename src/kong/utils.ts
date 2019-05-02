@@ -436,12 +436,6 @@ function kongGetAllServices(callback: Callback<KongCollection<KongService>>): vo
     kongGet('services?size=100000', callback);
 }
 
-// replace to pagination, kong won't allow > 1000 items
-// TODO: change that
-function kongGetAllServicesPaginated(callback: Callback<KongCollection<KongService>>): void {
-    kongGet('services?size=100000', callback);
-}
-
 function kongPostService(service: KongService, callback: Callback<KongService>): void {
     kongPost('services', service, callback);
 }
@@ -456,12 +450,6 @@ function kongDeleteService(serviceId: string, callback: ErrorCallback): void {
 
 // Route functions
 function kongGetAllRoutes(callback: Callback<KongCollection<KongRoute>>): void {
-    kongGet('routes?size=100000', callback);
-}
-
-// replace to pagination, kong won't allow > 1000 items
-// TODO: change that
-function kongGetAllRoutesPaginated(callback: Callback<KongCollection<KongRoute>>): void {
     kongGet('routes?size=100000', callback);
 }
 
@@ -496,8 +484,8 @@ function kongGetRouteForService(serviceId: string, callback: Callback<KongRoute[
 export function kongGetAllApis(callback: Callback<KongCollection<KongApi>>): void {
     debug('kongGetAllApis()');
     async.parallel({
-        services: callback => kongGetAllServicesPaginated(callback),
-        routes: callback => kongGetAllRoutesPaginated(callback)
+        services: callback => kongGetAllServices(callback),
+        routes: callback => kongGetAllRoutes(callback)
     }, function (err, results) {
         if (err)
             return callback(err);
@@ -546,12 +534,6 @@ export function kongGetApiPlugins(apiId: string, callback: Callback<KongCollecti
     debug(`kongGetApiPlugins(${apiId})`);
     // kongGet(`apis/${apiId}/plugins?size=1000000`, callback);
     kongGet(`services/${apiId}/plugins?size=1000000`, callback);
-}
-
-//TODO: change to cursored
-export function kongGetRoutePlugins(routeId: string, callback: Callback<KongCollection<KongPlugin>>): void {
-    debug(`kongGetRoutePlugins(${routeId})`);
-    kongGet(`plugins?route_id=${routeId}&size=1000000`, callback);
 }
 
 export function kongPostApi(apiConfig: KongApi, callback: Callback<KongApi>): void {
