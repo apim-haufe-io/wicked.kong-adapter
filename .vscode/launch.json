@@ -8,7 +8,7 @@
             "type": "node",
             "request": "launch",
             "name": "Programm starten",
-            "program": "${workspaceFolder}/bin/kong-adapter"
+            "program": "${workspaceFolder}/dist/bin/kong-adapter.js"
         }
     ]
 }

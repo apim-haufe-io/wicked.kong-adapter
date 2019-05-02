@@ -22,7 +22,7 @@
   },
   "name": "portal-kong-adapter",
   "config": {
-    "kongversion": "0.14.1"
+    "kongversion": "1.1.2"
   },
   "devDependencies": {
     "@types/node": "^10.11.3",
