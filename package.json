@@ -8,13 +8,16 @@
     "morgan": "1.9.1",
     "portal-env": "file:../portal-env.tgz",
     "request": "2.88.0",
-    "wicked-sdk": "file:wicked-sdk.tgz"
+    "wicked-sdk": "file:wicked-sdk.tgz",
+    "snyk": "^1.189.0"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "./build-typescript.sh",
     "build-and-start": "./build-typescript.sh && node ./dist/bin/kong-adapter.js",
-    "start": "node ./dist/bin/kong-adapter.js"
+    "start": "node ./dist/bin/kong-adapter.js",
+    "snyk-protect": "snyk protect",
+    "prepublish": "npm run snyk-protect"
   },
   "jshintConfig": {
     "node": true,
@@ -27,5 +30,6 @@
   "devDependencies": {
     "@types/node": "^10.11.3",
     "typescript": "3.4.1"
-  }
+  },
+  "snyk": true
 }
