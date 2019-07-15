@@ -38,9 +38,14 @@ app.post('/', function (req, res, next) {
         return res.send('OK');
     }
 
+    const startTime = Date.now();
+    const correlationId = utils.createRandomId();
+    debug(`processingWebhooks correlation ID: ${correlationId}`);
     req.app.processingWebhooks = true;
     kongMain.processWebhooks(function (err) {
         req.app.processingWebhooks = false;
+        const duration = Date.now() - startTime;
+        debug(`processWebhooks() returned after ${duration} ms (correlation id ${correlationId})`);
         if (err) {
             error(err);
             return res.status(500).json(err);
@@ -102,9 +107,12 @@ if (process.env.ALLOW_RESYNC) {
         debug('/resync');
         // Reset usage statistics and keep changing actions/non-matching objects
         utils.resetStatistics(true);
+        const startTime = Date.now();
         kongMain.resync(function (err) {
             // Retrieve the list of statistics, we will definitely return these,
             // disregarding of the success of the action.
+            const duration = Date.now() - startTime;
+            debug(`Resync call took ${duration} ms`);
             const stats = utils.getStatistics();
             debug('Statistics for the /resync call:');
             debug(JSON.stringify(stats, null, 2));
