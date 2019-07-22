@@ -101,7 +101,7 @@ export function matchObjects(apiObject, kongObject) {
 function matchObjectsInternal(apiObject, kongObject) {
     for (let prop in apiObject) {
         if (!kongObject.hasOwnProperty(prop)) {
-            console.log('Kong object does not have property "' + prop + '".');
+            //console.log('Kong object does not have property "' + prop + '".');
             return false;
         }
 
@@ -118,7 +118,7 @@ function matchObjectsInternal(apiObject, kongObject) {
                 return false;
         } else { // other types
             if (apiObject[prop] != kongObject[prop]) {
-                console.log('Property "' + prop + '" does not match ("' + apiObject[prop] + '" vs "' + kongObject[prop] + '").');
+                //console.log('Property "' + prop + '" does not match ("' + apiObject[prop] + '" vs "' + kongObject[prop] + '").');
                 return false;
             }
         }
@@ -551,7 +551,7 @@ export function kongPostApi(apiConfig: KongApi, callback: Callback<KongApi>): vo
         function (service: KongService, callback) {
             persistedService = service;
 
-            for( let i = 0; i < routes.length; i += 1 ) {
+            for (let i = 0; i < routes.length; i += 1) {
                 routes[i].service = { id: service.id };
             }
 
@@ -559,16 +559,15 @@ export function kongPostApi(apiConfig: KongApi, callback: Callback<KongApi>): vo
         }
     );
 
-    for( let i = 0; i < routes.length; i += 1 ) {
+    for (let i = 0; i < routes.length; i += 1) {
         flow.push(
             function (index: number, routes: KongRoute[], callback) {
-                kongPostRoute(routes[index], function( err, data: KongRoute ) {
+                kongPostRoute(routes[index], function (err, data: KongRoute) {
                     persistedRoute.push( data );
 
-                    if ( index + 1 >= routes.length ) {
+                    if (index + 1 >= routes.length) {
                         return callback(null);
-                    }
-                    else {
+                    } else {
                         callback(null, index + 1, routes);
                     }
                 });
@@ -719,17 +718,16 @@ export function kongDeleteApi(apiId: string, callback: ErrorCallback): void {
             }
         );
 
-        for( let i = 0; i < routes.length; i += 1 ) {
+        for (let i = 0; i < routes.length; i += 1) {
             flow.push(
                 function (index: number, routes: KongRoute[], callback) {
                     kongDeleteRoute(routes[index].id, function (err) {
                         if (err)
                             return callback(err);
 
-                        if ( index + 1 >= routes.length ) {
+                        if (index + 1 >= routes.length) {
                             return callback(null);
-                        }
-                        else {
+                        } else {
                             callback(null, index + 1, routes);
                         }
                     });
@@ -738,6 +736,7 @@ export function kongDeleteApi(apiId: string, callback: ErrorCallback): void {
         }
 
         flow.push(
+            //this corresponds to last no argument call, so only callback is here
             function (callback) {
                 kongDeleteService(apiId, callback);
             }
